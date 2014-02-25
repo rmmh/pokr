@@ -4,7 +4,6 @@ import sys
 
 from PIL import Image
 import numpy
-import redis
 import cv2
 
 class SpriteIdentifier(object):
@@ -41,7 +40,7 @@ $*./, 0123456789
 
     def sprite_to_int(self, image, left, top):
         if isinstance(image, numpy.ndarray):
-            bits = (image[top*8:top*8+8, left*8:left*8+8] < 128).flat
+            bits = (image[top*8:top*8+8, left*8:left*8+8]).flat
             out = 0
             for n,bit in enumerate(bits):
                 if bit: 
@@ -82,19 +81,17 @@ def extract_screen_from_array(raw):
     screen = cv2.resize(screen, (160, 144))
     return screen
 
-'''
-import os
-for fn in os.listdir('corpus'):
-    print '#' * 20 + ' ' + fn
-    print
-    print identifier.screen_to_text(extract_screen(Image.open('corpus/' + fn)))
-'''
+def test_corpus():
+    import os
+    for fn in os.listdir('corpus'):
+        print '#' * 20 + ' ' + fn
+        print
+        print identifier.screen_to_text(extract_screen(Image.open('corpus/' + fn)))
 
-r = redis.Redis()
+#test_corpus()
 
 import time 
 cv = cv2.VideoCapture('/dev/stdin')
-#print '\x9b?25l'
 print '\x1b[2J'
 last_text = ''
 n = 0
@@ -104,14 +101,10 @@ while True:
     cv.grab()
     success, frame = cv.retrieve()
     screen2 = extract_screen_from_array(frame)
-    #print repr(screen2)
     #Image.fromarray(screen2).show()
-    text = identifier.screen_to_text(cv2.cvtColor(screen2, cv2.COLOR_BGR2GRAY))
-    #print type(screen2)
+    text = identifier.screen_to_text(cv2.cvtColor(screen2, cv2.COLOR_BGR2GRAY) < 128)
     if text != last_text:
         print '\x1B[H'
         #print n, n/(time.time()-start)
         print text
-        #r.publish('tpp.text', text)
     last_text = text
-    #q
