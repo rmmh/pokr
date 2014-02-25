@@ -5,9 +5,11 @@ import time
 import thread
 import threading
 
-from PIL import Image
-import numpy
 import cv2
+import livestreamer
+import numpy
+
+from PIL import Image
 
 class SpriteIdentifier(object):
     def __init__(self):
@@ -93,8 +95,10 @@ def test_corpus():
 
 #test_corpus()
 
-
-cv = cv2.VideoCapture('/dev/stdin')
+livestreamer = livestreamer.Livestreamer()
+plugin = livestreamer.resolve_url('http://twitch.tv/twitchplayspokemon')
+streams = plugin.get_streams()
+cv = cv2.VideoCapture(streams['source'].url)
 
 frame_ready = threading.Condition()
 frame = None
