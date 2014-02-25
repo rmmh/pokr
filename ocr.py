@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 
 import sys
+import time 
+import thread
+import threading
 
 from PIL import Image
 import numpy
@@ -90,16 +93,29 @@ def test_corpus():
 
 #test_corpus()
 
-import time 
+
 cv = cv2.VideoCapture('/dev/stdin')
+
+frame_ready = threading.Condition()
+frame = None
+
+def poll():
+    while True:
+        global frame
+        cv.grab()
+        _, frame = cv.retrieve()
+        with frame_ready:
+            frame_ready.notify()
+
+thread.start_new_thread(poll, ())
+
 print '\x1b[2J'
 last_text = ''
 n = 0
 start = time.time()
 while True:
-    n += 1
-    cv.grab()
-    success, frame = cv.retrieve()
+    with frame_ready:
+        frame_ready.wait()
     screen2 = extract_screen_from_array(frame)
     #Image.fromarray(screen2).show()
     text = identifier.screen_to_text(cv2.cvtColor(screen2, cv2.COLOR_BGR2GRAY) < 128)
