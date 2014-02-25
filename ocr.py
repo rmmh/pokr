@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import zlib
 import gzip
 import sys
 import time 
@@ -107,7 +108,7 @@ def grab_frames():
                 continue
 
 def process_frames():
-    tlog = open('frames.txt', 'a')
+    tlog = open('frames.txt', 'a')  # tail -f frames.txt | tr '`' '\n'
     print '\x1b[2J'
     last_text = ''
     cur = time.time()
@@ -123,7 +124,7 @@ def process_frames():
             print '\x1B[H'
             print text
             last_text = text
-            tlog.write(text)
+            tlog.write(text.replace('\n', '`') + '\n')
         qsize = frame_queue.qsize()
         #print '%s     ' % qsize
         if qsize < 60:
