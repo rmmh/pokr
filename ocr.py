@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import gzip
 import sys
 import time 
 import thread
@@ -83,8 +84,14 @@ def test_corpus():
 
 #test_corpus()
 
-
-cv = cv2.VideoCapture('/dev/stdin')
+if '--direct' in sys.argv:
+    import livestreamer
+    livestreamer = livestreamer.Livestreamer()
+    plugin = livestreamer.resolve_url('http://twitch.tv/twitchplayspokemon')
+    streams = plugin.get_streams()
+    cv = cv2.VideoCapture(streams['source'].url)
+else:
+    cv = cv2.VideoCapture('/dev/stdin')
 
 frame_queue = Queue.Queue(120)
 
@@ -100,6 +107,7 @@ def grab_frames():
                 continue
 
 def process_frames():
+    tlog = open('frames.txt', 'a')
     print '\x1b[2J'
     last_text = ''
     cur = time.time()
@@ -115,6 +123,7 @@ def process_frames():
             print '\x1B[H'
             print text
             last_text = text
+            tlog.write(text)
         qsize = frame_queue.qsize()
         #print '%s     ' % qsize
         if qsize < 60:
