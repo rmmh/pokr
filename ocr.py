@@ -59,7 +59,7 @@ $*./, 0123456789
         if preview:
             cv2.imshow("Game", screen)
             cv2.waitKey(1)
-        screen = cv2.cvtColor(screen, cv2.COLOR_BGR2GRAY) < 128
+        screen = screen < 128
         out = ''
         for y in range(18):
             for x in range(20):
@@ -80,7 +80,7 @@ def test_corpus():
     for fn in os.listdir('corpus'):
         print '#' * 20 + ' ' + fn
         print
-        print identifier.screen_to_text(extract_screen(cv2.imread('corpus/' + fn)))
+        print identifier.screen_to_text(extract_screen(cv2.cvtColor(cv2.imread('corpus/' + fn), cv2.COLOR_BGR2GRAY)))
 
 #test_corpus()
 
@@ -89,30 +89,38 @@ plugin = livestreamer.resolve_url('http://twitch.tv/twitchplayspokemon')
 streams = plugin.get_streams()
 cv = cv2.VideoCapture(streams['source'].url)
 
-frame_queue = Queue.Queue(30)
+frame_queue = Queue.Queue(120)
 
 def grab_frames():
     while True:
         cv.grab()
-        _, frame = cv.retrieve()
-        try:
-            frame_queue.put(frame, block=False)
-        except Queue.Full:
-            continue
+        success, frame = cv.retrieve()
+        if success:
+            try:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                frame_queue.put(frame, block=False, timeout=1.)
+            except Queue.Full:
+                continue
 
 def process_frames():
-    print '\x1b[2J'
     last_text = ''
+    cur = time.time()
     while True:
+        prev = cur
+        cur = time.time()
         frame = frame_queue.get()
         if preview:
             cv2.imshow('Stream', frame)
-        screen2 = extract_screen(frame)
-        text = identifier.screen_to_text(screen2)
+        screen = extract_screen(frame)
+        text = identifier.screen_to_text(screen)
         if text != last_text:
             print '\x1B[H'
             print text
             last_text = text
+        qsize = frame_queue.qsize()
+        #print '%s     ' % qsize
+        if qsize < 60:
+            time.sleep(max(0, 1/60. - (cur - prev) + 1/600.*(60-qsize)))
 
 thread.start_new_thread(grab_frames, ())
 thread.start_new_thread(process_frames, ())
