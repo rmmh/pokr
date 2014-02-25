@@ -3,17 +3,21 @@
 import sys
 import time 
 import thread
-import threading
+import Queue
 
 import cv2
 import livestreamer
 import numpy
 
-from PIL import Image
+preview = '--show' in sys.argv
+
+if preview:
+    cv2.namedWindow("Stream", cv2.WINDOW_AUTOSIZE)
+    cv2.namedWindow("Game", cv2.WINDOW_AUTOSIZE)
 
 class SpriteIdentifier(object):
     def __init__(self):
-        tiles = Image.open("red_tiles.png").convert('1', dither=Image.NONE)
+        tiles = cv2.cvtColor(cv2.imread("red_tiles.png"), cv2.COLOR_BGR2GRAY) < 128
         #tiles.show()
         tile_text = '''
 ABCDEFGHIJKLMNOP
@@ -44,26 +48,18 @@ $*./, 0123456789
                 self.tile_map[sprite] = char
 
     def sprite_to_int(self, image, left, top):
-        if isinstance(image, numpy.ndarray):
-            bits = (image[top*8:top*8+8, left*8:left*8+8]).flat
-            out = 0
-            for n,bit in enumerate(bits):
-                if bit: 
-                    out |= 1<<(63-n)
-            return out
-
-        top *= 8
-        left *= 8
+        bits = (image[top*8:top*8+8, left*8:left*8+8]).flat
         out = 0
-        for y in range(top, top+8):
-            for x in range(left, left+8):
-                out <<= 1
-                p = image.getpixel((x, y))
-                if p in (0, (0, 0, 0)):
-                    out |= 1
+        for n,bit in enumerate(bits):
+            if bit: 
+                out |= 1<<(63-n)
         return out
 
     def screen_to_text(self, screen):
+        if preview:
+            cv2.imshow("Game", screen)
+            cv2.waitKey(1)
+        screen = cv2.cvtColor(screen, cv2.COLOR_BGR2GRAY) < 128
         out = ''
         for y in range(18):
             for x in range(20):
@@ -73,14 +69,7 @@ $*./, 0123456789
 
 identifier = SpriteIdentifier()
 
-
 def extract_screen(raw):
-    screen_x, screen_y = 8, 41
-    screen = raw.crop((screen_x, screen_y, screen_x + 480, screen_y + 432))
-    screen = screen.resize((160, 144)).convert('1', dither=Image.NONE)
-    return screen
-
-def extract_screen_from_array(raw):
     screen_x, screen_y = 8, 41
     screen = raw[screen_y:screen_y+432, screen_x:screen_x+480]
     screen = cv2.resize(screen, (160, 144))
@@ -91,7 +80,7 @@ def test_corpus():
     for fn in os.listdir('corpus'):
         print '#' * 20 + ' ' + fn
         print
-        print identifier.screen_to_text(extract_screen(Image.open('corpus/' + fn)))
+        print identifier.screen_to_text(extract_screen(cv2.imread('corpus/' + fn)))
 
 #test_corpus()
 
@@ -100,31 +89,33 @@ plugin = livestreamer.resolve_url('http://twitch.tv/twitchplayspokemon')
 streams = plugin.get_streams()
 cv = cv2.VideoCapture(streams['source'].url)
 
-frame_ready = threading.Condition()
-frame = None
+frame_queue = Queue.Queue(30)
 
-def poll():
+def grab_frames():
     while True:
-        global frame
         cv.grab()
         _, frame = cv.retrieve()
-        with frame_ready:
-            frame_ready.notify()
+        try:
+            frame_queue.put(frame, block=False)
+        except Queue.Full:
+            continue
 
-thread.start_new_thread(poll, ())
+def process_frames():
+    print '\x1b[2J'
+    last_text = ''
+    while True:
+        frame = frame_queue.get()
+        if preview:
+            cv2.imshow('Stream', frame)
+        screen2 = extract_screen(frame)
+        text = identifier.screen_to_text(screen2)
+        if text != last_text:
+            print '\x1B[H'
+            print text
+            last_text = text
 
-print '\x1b[2J'
-last_text = ''
-n = 0
-start = time.time()
+thread.start_new_thread(grab_frames, ())
+thread.start_new_thread(process_frames, ())
+
 while True:
-    with frame_ready:
-        frame_ready.wait()
-    screen2 = extract_screen_from_array(frame)
-    #Image.fromarray(screen2).show()
-    text = identifier.screen_to_text(cv2.cvtColor(screen2, cv2.COLOR_BGR2GRAY) < 128)
-    if text != last_text:
-        print '\x1B[H'
-        #print n, n/(time.time()-start)
-        print text
-    last_text = text
+    time.sleep(1)
