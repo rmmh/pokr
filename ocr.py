@@ -6,7 +6,6 @@ import thread
 import Queue
 
 import cv2
-import livestreamer
 import numpy
 
 preview = '--show' in sys.argv
@@ -84,10 +83,8 @@ def test_corpus():
 
 #test_corpus()
 
-livestreamer = livestreamer.Livestreamer()
-plugin = livestreamer.resolve_url('http://twitch.tv/twitchplayspokemon')
-streams = plugin.get_streams()
-cv = cv2.VideoCapture(streams['source'].url)
+
+cv = cv2.VideoCapture('/dev/stdin')
 
 frame_queue = Queue.Queue(120)
 
@@ -103,6 +100,7 @@ def grab_frames():
                 continue
 
 def process_frames():
+    print '\x1b[2J'
     last_text = ''
     cur = time.time()
     while True:
