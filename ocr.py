@@ -54,9 +54,7 @@ class SpriteIdentifier(object):
             for x in range(20):
                 sprite = self.sprite_to_int(screen, x, y)
                 out_text += self.tile_map.get(sprite, ' ')
-                out_dither += self.tile_map.get(sprite,
-                                self.tile_map_outside.get(sprite,
-                                    ' .,:;*@#'[bin(sprite).count('1')/10]))
+                out_dither += self.tile_map.get(sprite, None) or self.tile_map_outside.get(sprite, None) or ' .,:;*@#'[bin(sprite).count('1')/10]
             out_text += '\n'
             out_dither += '\n'
         return out_text, out_dither
@@ -164,7 +162,7 @@ if __name__ == '__main__':
                 self.fd.write(data['text'].replace('\n', '`') + data['timestamp'] + '\n')
 
     identifier = SpriteIdentifier(preview='--show' in sys.argv)
-    proc = StreamProcessor(identifier.stream_to_text)
+    proc = StreamProcessor(identifier.stream_to_text, only_changes=False)
     proc.add_handler(handler_stdout)
     proc.add_handler(LogHandler('frames.log').handle)
     proc.run()
