@@ -10,6 +10,7 @@ import Queue
 import livestreamer
 import cv2
 
+import timestamp
 
 class SpriteIdentifier(object):
     def __init__(self, preview=False):
@@ -70,17 +71,24 @@ class SpriteIdentifier(object):
             print identifier.stream_to_text(cv2.cvtColor(cv2.imread('corpus/' + fn), cv2.COLOR_BGR2GRAY))
 
 
+
 class StreamProcessor(object):
-    def __init__(self, identifier=None, bufsize=120, ratelimit=True):
+
+    def __init__(self, identifier=None, bufsize=120, ratelimit=True, only_changes=True):
         self.frame_queue = Queue.Queue(bufsize)
         self.ratelimit = ratelimit
-        self.handlers = []
         if identifier is None:
             identifier = SpriteIdentifier().stream_to_text
         self.identifier = identifier
+        self.only_changes = only_changes
+        self.set_default_handlers()
 
     def add_handler(self, handler):
         self.handlers.append(handler)
+
+    def set_default_handlers(self):
+        self.handlers = []
+        self.handlers.append(timestamp.TimestampRecognizer().handle)
 
     def grab_frames(self):
         while True:
@@ -102,7 +110,7 @@ class StreamProcessor(object):
             cur = time.time()
             frame = self.frame_queue.get()
             text = self.identifier(frame)
-            if text != last_text:
+            if not self.only_changes or text != last_text:
                 data = {'text': text, 'frame': frame}
                 last_text = text
                 for handler in self.handlers:
@@ -128,7 +136,7 @@ class StreamProcessor(object):
 
 if __name__ == '__main__':
     def handler_stdout(data):
-        print '\x1B[H'
+        print '\x1B[H' + data['timestamp'] + ' '*10
         print data['text']
 
     class LogHandler:
@@ -136,7 +144,7 @@ if __name__ == '__main__':
             self.fd = open(fname, 'a')
 
         def handle(self, data):
-            self.fd.write(data['text'].replace('\n', '`') + '\n')
+            self.fd.write(data['text'].replace('\n', '`') + data['timestamp'] + '\n')
 
     identifier = SpriteIdentifier(preview='--show' in sys.argv)
     proc = StreamProcessor(identifier.stream_to_text)
