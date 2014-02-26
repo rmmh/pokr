@@ -15,23 +15,28 @@ import timestamp
 
 class SpriteIdentifier(object):
     def __init__(self, preview=False):
-        path = os.path.abspath(os.path.dirname(__file__))
-        tiles = cv2.cvtColor(cv2.imread(path + "/red_tiles.png"), cv2.COLOR_BGR2GRAY) < 128
-        tile_text = open(path + '/red_tiles.txt').read()
+        self.preview = preview
+        if self.preview:
+            cv2.namedWindow("Stream", cv2.WINDOW_AUTOSIZE)
+            cv2.namedWindow("Game", cv2.WINDOW_AUTOSIZE)
+        self.tile_map = self.make_tilemap('red_tiles')
+        self.tile_map_outside = self.make_tilemap('red_tiles_outside')
 
-        self.tile_map = {}
+    def make_tilemap(self, name):
+        path = os.path.abspath(os.path.dirname(__file__)) + '/' + name
+        tiles = cv2.cvtColor(cv2.imread(path + '.png'), cv2.COLOR_BGR2GRAY) < 128
+        tile_text = open(path + '.txt').read()
+
+        tile_map = {}
 
         for y, line in enumerate(tile_text.splitlines()):
             for x, char in enumerate(line):
                 sprite = self.sprite_to_int(tiles, x, y)
                 if sprite == 0:
                     continue
-                self.tile_map[sprite] = char
+                tile_map[sprite] = char
 
-        self.preview = preview
-        if self.preview:
-            cv2.namedWindow("Stream", cv2.WINDOW_AUTOSIZE)
-            cv2.namedWindow("Game", cv2.WINDOW_AUTOSIZE)
+        return tile_map
 
     def sprite_to_int(self, image, left, top):
         bits = (image[top*8:top*8+8, left*8:left*8+8]).flat
@@ -49,7 +54,9 @@ class SpriteIdentifier(object):
             for x in range(20):
                 sprite = self.sprite_to_int(screen, x, y)
                 out_text += self.tile_map.get(sprite, ' ')
-                out_dither += self.tile_map.get(sprite, ' .,:;*@#'[bin(sprite).count('1')/10])
+                out_dither += self.tile_map.get(sprite,
+                                self.tile_map_outside.get(sprite,
+                                    ' .,:;*@#'[bin(sprite).count('1')/10]))
             out_text += '\n'
             out_dither += '\n'
         return out_text, out_dither
@@ -139,6 +146,8 @@ class StreamProcessor(object):
 
 
 if __name__ == '__main__':
+    #SpriteIdentifier().test_corpus()
+
     def handler_stdout(data):
         print '\x1B[H' + data['timestamp'] + ' '*10
         print data['dithered']
