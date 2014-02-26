@@ -31,7 +31,9 @@ class TimestampRecognizer(object):
         col_str = (col_sum *.5 + ord('A')).astype(numpy.int8).tostring()
         strings = re.split(r'A*', col_str)
         try:
-            self.last = self.convert(strings)
+            result = self.convert(strings)
+            if result:  # empty string when stream is in an unexpected state
+                self.last = result
         except IndexError:
             pass # no close match
         finally:

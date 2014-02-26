@@ -10,6 +10,7 @@ import Queue
 import livestreamer
 import cv2
 
+import delta
 import timestamp
 
 
@@ -151,20 +152,24 @@ if __name__ == '__main__':
         print data['dithered']
 
     class LogHandler:
-        def __init__(self, fname):
+        def __init__(self, key, fname, rep=None):
+            self.key = key
             self.fd = open(fname, 'a')
             self.last = ''
+            self.rep = rep or (lambda s: s.replace('\n', '`'))
 
         def handle(self, data):
-            text = data['text']
+            text = data[self.key]
             if text != self.last:
                 self.last = text
-                self.fd.write(data['text'].replace('\n', '`') + data['timestamp'] + '\n')
+                self.fd.write(self.rep(text) + data['timestamp'] + '\n')
 
     identifier = SpriteIdentifier(preview='--show' in sys.argv)
     proc = StreamProcessor(identifier.stream_to_text, only_changes=False)
     proc.add_handler(handler_stdout)
-    proc.add_handler(LogHandler('frames.log').handle)
+    proc.add_handler(LogHandler('text', 'frames.log').handle)
+    proc.add_handler(delta.StringDeltaCompressor('dithered', verify=True).handle)
+    proc.add_handler(LogHandler('dithered_delta', 'frames_delta.log', rep=lambda s:s.replace('\t', '`')+'`').handle)
     proc.run()
 
     time.sleep(5)
