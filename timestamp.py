@@ -32,6 +32,8 @@ class TimestampRecognizer(object):
         strings = re.split(r'A*', col_str)
         try:
             self.last = self.convert(strings)
+        except IndexError:
+            pass # no close match
         finally:
             days, hours, minutes, seconds = map(int, re.split('[dhms]', self.last)[:-1])
             data['timestamp'] = self.last

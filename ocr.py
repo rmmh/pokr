@@ -102,7 +102,6 @@ class StreamProcessor(object):
                     continue
 
     def process_frames(self):
-        tlog = open('frames.txt', 'a')  # tail -f frames.txt | tr '`' '\n'
         last_text = ''
         cur = time.time()
         while True:
