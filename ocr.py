@@ -144,7 +144,7 @@ class StreamProcessor(object):
 
 
 if __name__ == '__main__':
-    #SpriteIdentifier().test_corpus()
+    #SpriteIdentifier().test_corpus();q
 
     def handler_stdout(data):
         print '\x1B[H' + data['timestamp'] + ' '*10
