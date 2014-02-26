@@ -103,10 +103,11 @@ class StreamProcessor(object):
             frame = self.frame_queue.get()
             text = self.identifier(frame)
             if text != last_text:
+                data = {'text': text, 'frame': frame}
                 last_text = text
                 for handler in self.handlers:
                     try:
-                        handler(text)
+                        handler(data)
                     except Exception:
                         traceback.print_exc()
 
@@ -126,16 +127,16 @@ class StreamProcessor(object):
 
 
 if __name__ == '__main__':
-    def handler_stdout(text):
+    def handler_stdout(data):
         print '\x1B[H'
-        print text
+        print data['text']
 
     class LogHandler:
         def __init__(self, fname):
             self.fd = open(fname, 'a')
 
-        def handle(self, text):
-            self.fd.write(text.replace('\n', '`') + '\n')
+        def handle(self, data):
+            self.fd.write(data['text'].replace('\n', '`') + '\n')
 
     identifier = SpriteIdentifier(preview='--show' in sys.argv)
     proc = StreamProcessor(identifier.stream_to_text)

@@ -22,9 +22,12 @@ Pokr can also be used as a module:
 
     import pokr
 
-    def printer(text):
-        print text
+    def printer(data):
+        print data['text']
 
     proc = pokr.StreamProcessor()
     proc.add_handler(printer)
     proc.run()
+
+Handlers receive a dict with 'text' as a string of the recognized characters, and 'frame' as the
+current image from the stream.
