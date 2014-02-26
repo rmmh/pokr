@@ -5,11 +5,13 @@ class StringDeltaCompressor(object):
     '''
     Compress sequences of constant-length strings by encoding fragments that
      need to be replaced. The data is tab-separated:
-        {pos_1}\t{str_1}\t{pos_2}\t{str_2}...
+        {skip_1}\t{str_1}\t{skip_2}\t{str_2}...
+    Or, alternatively:
+        {match_len}\t{mismatch_str}\t...
     Input cannot contain tabs.
     '''
 
-    def __init__(self, key, minmatch=2, verify=False):
+    def __init__(self, key, minmatch=4, verify=False):
         self.key = key
         self.minmatch = minmatch
         self.last = ''
@@ -30,19 +32,23 @@ class StringDeltaCompressor(object):
         mismatch_begin = 0
         mismatch_emitted = False
         match_begin = 0
+        offset = 0
 
-        def emit(pos, leng):
+        instructions = []
+
+        def emit(offset, pos, leng):
             if leng == 0:
                 return ''
-            return '%d\t%s\t' % (pos, text[pos:pos+leng])
+            return '%d\t%s\t' % (pos - offset, text[pos:pos+leng])
 
         # find mismatches
         for n, (a, b) in enumerate(itertools.izip_longest(text, self.last, fillvalue=None)):
             if in_match:
                 if a != b:
                     in_match = False
-                    if n - match_begin >= self.minmatch + len(str(mismatch_begin)):
-                        buf += emit(mismatch_begin, match_begin - mismatch_begin)
+                    if n - match_begin >= self.minmatch:
+                        buf += emit(offset, mismatch_begin, match_begin - mismatch_begin)
+                        offset = match_begin
                         mismatch_begin = n
             else:
                 if a == b:
@@ -51,9 +57,9 @@ class StringDeltaCompressor(object):
 
         # emit last match
         if not in_match:
-            buf += emit(mismatch_begin, n - mismatch_begin + 1)
+            buf += emit(offset, mismatch_begin, n - mismatch_begin + 1)
         elif mismatch_begin < match_begin:
-            buf += emit(mismatch_begin, match_begin - mismatch_begin)
+            buf += emit(offset, mismatch_begin, match_begin - mismatch_begin)
 
         buf = buf[:-1]  # strip trailing tab
 
@@ -76,10 +82,12 @@ class StringDeltaCompressor(object):
 
         ins = delta.split('\t')
         data = prev
+        pos = 0
         while ins:
-            pos = int(ins.pop(0))
+            pos += int(ins.pop(0))
             fragment = ins.pop(0)
             data = data[:pos] + fragment + data[pos+len(fragment):]
+            pos += len(fragment)
 
         return data
 
