@@ -12,6 +12,7 @@ import cv2
 
 import timestamp
 
+
 class SpriteIdentifier(object):
     def __init__(self, preview=False):
         path = os.path.abspath(os.path.dirname(__file__))
@@ -23,7 +24,7 @@ class SpriteIdentifier(object):
         for y, line in enumerate(tile_text.splitlines()):
             for x, char in enumerate(line):
                 sprite = self.sprite_to_int(tiles, x, y)
-                if char == ' ' or sprite == 0:
+                if sprite == 0:
                     continue
                 self.tile_map[sprite] = char
 
@@ -42,12 +43,16 @@ class SpriteIdentifier(object):
 
     def screen_to_text(self, screen):
         screen = screen < 128
-        out = ''
+        out_text = ''
+        out_dither = ''
         for y in range(18):
             for x in range(20):
-                out += self.tile_map.get(self.sprite_to_int(screen, x, y), ' ')
-            out += '\n'
-        return out
+                sprite = self.sprite_to_int(screen, x, y)
+                out_text += self.tile_map.get(sprite, ' ')
+                out_dither += self.tile_map.get(sprite, ' .,:;*@#'[bin(sprite).count('1')/10])
+            out_text += '\n'
+            out_dither += '\n'
+        return out_text, out_dither
 
     def extract_screen(self, raw):
         screen_x, screen_y = 8, 41
@@ -68,12 +73,12 @@ class SpriteIdentifier(object):
         import os
         for fn in os.listdir('corpus'):
             print '#' * 20 + ' ' + fn
-            print identifier.stream_to_text(cv2.cvtColor(cv2.imread('corpus/' + fn), cv2.COLOR_BGR2GRAY))
+            text, dithered = self.stream_to_text(cv2.cvtColor(cv2.imread('corpus/' + fn), cv2.COLOR_BGR2GRAY))
+            print dithered
 
 
 
 class StreamProcessor(object):
-
     def __init__(self, identifier=None, bufsize=120, ratelimit=True, only_changes=True):
         self.frame_queue = Queue.Queue(bufsize)
         self.ratelimit = ratelimit
@@ -108,9 +113,9 @@ class StreamProcessor(object):
             prev = cur
             cur = time.time()
             frame = self.frame_queue.get()
-            text = self.identifier(frame)
+            text, dithered = self.identifier(frame)
             if not self.only_changes or text != last_text:
-                data = {'text': text, 'frame': frame}
+                data = {'text': text, 'dithered': dithered, 'frame': frame}
                 last_text = text
                 for handler in self.handlers:
                     try:
@@ -136,14 +141,18 @@ class StreamProcessor(object):
 if __name__ == '__main__':
     def handler_stdout(data):
         print '\x1B[H' + data['timestamp'] + ' '*10
-        print data['text']
+        print data['dithered']
 
     class LogHandler:
         def __init__(self, fname):
             self.fd = open(fname, 'a')
+            self.last = ''
 
         def handle(self, data):
-            self.fd.write(data['text'].replace('\n', '`') + data['timestamp'] + '\n')
+            text = data['text']
+            if text != self.last:
+                self.last = text
+                self.fd.write(data['text'].replace('\n', '`') + data['timestamp'] + '\n')
 
     identifier = SpriteIdentifier(preview='--show' in sys.argv)
     proc = StreamProcessor(identifier.stream_to_text)
