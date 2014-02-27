@@ -85,13 +85,15 @@ class SpriteIdentifier(object):
 
 
 class StreamProcessor(object):
-    def __init__(self, identifier=None, bufsize=120, ratelimit=True, only_changes=True):
+    def __init__(self, identifier=None, bufsize=120, ratelimit=True,
+                 only_changes=True, frame_skip=0):
         self.frame_queue = Queue.Queue(bufsize)
         self.ratelimit = ratelimit
         if identifier is None:
             identifier = SpriteIdentifier().stream_to_text
         self.identifier = identifier
         self.only_changes = only_changes
+        self.frame_skip = frame_skip
         self.set_default_handlers()
 
     def add_handler(self, handler):
@@ -104,6 +106,8 @@ class StreamProcessor(object):
     def grab_frames(self):
         while True:
             self.stream.grab()
+            for _ in range(self.frame_skip):
+                self.stream.grab()
             success, frame = self.stream.retrieve()
             if success:
                 try:
