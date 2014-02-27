@@ -22,7 +22,8 @@ class TimestampRecognizer(object):
     }
 
     def __init__(self):
-        self.last = '0d0h0m0s'
+        self.timestamp = '0d0h0m0s'
+        self.timestamp_s = 0
 
     def handle(self, data):
         x1, x2, y1, y2 = 232, 231+147, 9, 9 + 25
@@ -32,14 +33,14 @@ class TimestampRecognizer(object):
         strings = re.split(r'A*', col_str)
         try:
             result = self.convert(strings)
-            if result:  # empty string when stream is in an unexpected state
-                self.last = result
-        except IndexError:
-            pass # no close match
+            days, hours, minutes, seconds = map(int, re.split('[dhms]', result)[:-1])
+            self.timestamp = result
+            self.timestamp_s = ((days * 24 + hours) * 60 + minutes) * 60 + seconds
+        except (ValueError, IndexError):
+            pass    # invalid timestamp
         finally:
-            days, hours, minutes, seconds = map(int, re.split('[dhms]', self.last)[:-1])
-            data['timestamp'] = self.last
-            data['timestamp_s'] = ((days * 24 + hours) * 60 + minutes) * 60 + seconds
+            data['timestamp'] = self.timestamp
+            data['timestamp_s'] = self.timestamp_s
 
     def convert(self, strings):
         col_to_char = self.col_to_char

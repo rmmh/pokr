@@ -148,25 +148,25 @@ class StreamProcessor(object):
         thread.start_new_thread(self.process_frames, ())
 
 
+class LogHandler:
+    def __init__(self, key, fname, rep=None):
+        self.key = key
+        self.fd = open(fname, 'a')
+        self.last = ''
+        self.rep = rep or (lambda s: s.replace('\n', '`'))
+
+    def handle(self, data):
+        text = data[self.key]
+        if text != self.last:
+            self.last = text
+            self.fd.write(self.rep(text) + data['timestamp'] + '\n')
+
 if __name__ == '__main__':
     #SpriteIdentifier().test_corpus();q
 
     def handler_stdout(data):
         print '\x1B[H' + data['timestamp'] + ' '*10
         print data['dithered']
-
-    class LogHandler:
-        def __init__(self, key, fname, rep=None):
-            self.key = key
-            self.fd = open(fname, 'a')
-            self.last = ''
-            self.rep = rep or (lambda s: s.replace('\n', '`'))
-
-        def handle(self, data):
-            text = data[self.key]
-            if text != self.last:
-                self.last = text
-                self.fd.write(self.rep(text) + data['timestamp'] + '\n')
 
     identifier = SpriteIdentifier(preview='--show' in sys.argv)
     proc = StreamProcessor(identifier.stream_to_text, only_changes=False)
