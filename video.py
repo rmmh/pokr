@@ -8,22 +8,31 @@ import numpy
 
 from cffi import FFI
 
+import ocr
+
 ffi = FFI()
 ffi.cdef("void pack2bpp(uint8_t *in, uint8_t *out);")
 C = ffi.dlopen(os.path.abspath(os.path.dirname(__file__)) + '/compress.so')
 
-import ocr
 
-class SavedStreamProcessor(ocr.StreamProcessor):
-    def get_stream_location(self):
-        return '/home/ryan/games/tpp/stream.flv'
+class ScreenExtractor(object):
+    def __init__(self, fname=None, debug=False):
+        self.last = None
+        self.n = 0
 
-def pack(frame, pout):
-    frame_len = len(frame.flat)
-    pframe = ffi.cast("uint8_t *", frame.ctypes.data)
-    C.pack2bpp(pframe, pout)
+    def handle(self, data):
+        self.n += 1
+        data['screen'] = ocr.extract_screen(data['frame'])
+        trunc = data['screen'] >> 6  # / 64
+        data['changed'] = not numpy.array_equal(trunc, self.last)
+        data['frame_n'] = self.n
+        if not data['changed']:
+            raise StopIteration
 
-class FrameCompressor(object):
+        self.last = trunc
+
+
+class ScreenCompressor(object):
     FRAME_BYTES = 144 * 160 * 2 / 8
 
     def __init__(self, fname=None, debug=False):
@@ -31,28 +40,26 @@ class FrameCompressor(object):
         self.fd = None
         if fname:
             self.fd = gzip.GzipFile(time.strftime(fname), "w")
-        self.n = 0
         self.debug = debug
         self.start = time.time()
 
     def handle(self, data):
-        self.n += 1
         trunc = data['screen'] >> 6  # / 64
-        if numpy.array_equal(trunc, self.last):
-            return
-
-        pout = ffi.new('uint8_t[]', self.FRAME_BYTES)
         trunc_flat = trunc.flatten()
-        pack(trunc_flat, pout)
+        ptrunc = ffi.cast("uint8_t *", trunc_flat.ctypes.data)
+        pout = ffi.new('uint8_t[]', self.FRAME_BYTES)
+        C.pack2bpp(ptrunc, pout)
+
         if self.fd:
             self.fd.write('+f\xc9q')
-            self.fd.write(struct.pack('<LB', data.get('timestamp_s'), self.n & 0xff))
+            self.fd.write(struct.pack('<LB', data.get('timestamp_s', 0), data['frame_n'] & 0xff))
             self.fd.write(ffi.buffer(pout))
         self.last = trunc
 
         if self.debug:
-            if self.n&0xf==0:
-                print '%.3f %.3f' % (self.n/60., (self.n/60.) / (time.time() - self.start))
+            n = data['frame_n']
+            if n&0xf==0:
+                print '%.3f %.3f' % (n/60., (n/60.) / (time.time() - self.start))
             self.unpack(pout, trunc)
             cv2.imshow('Stream', cv2.resize(trunc * 80, (160 * 4, 144 * 4), interpolation=cv2.INTER_NEAREST))
             cv2.waitKey(1)
@@ -69,11 +76,16 @@ class FrameCompressor(object):
                         a >>= 2
 
 if __name__ == '__main__':
-    #cv2.namedWindow("Stream", cv2.WINDOW_AUTOSIZE)
+    import timestamp
+
+    class SavedStreamProcessor(ocr.StreamProcessor):
+        def get_stream_location(self):
+            return '/home/ryan/games/tpp/stream.flv'
+
     proc = SavedStreamProcessor(default_handlers=False)
-    proc.add_handler(ocr.SpriteIdentifier().handle_screen)
-    comp = FrameCompressor(debug=True)
-    proc.add_handler(comp.handle)
+    proc.add_handler(ScreenExtractor().handle)
+    proc.add_handler(timestamp.TimestampRecognizer().handle)
+    proc.add_handler(ScreenCompressor(debug=True, fname='frames.raw.gz').handle)
     proc.run()
     while True:
         time.sleep(1)  # loop until killed with ctrl-c

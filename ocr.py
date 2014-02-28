@@ -12,6 +12,14 @@ import cv2
 
 import delta
 import timestamp
+import video
+
+
+def extract_screen(raw):
+    screen_x, screen_y = 8, 41
+    screen = raw[screen_y:screen_y+432, screen_x:screen_x+480]
+    screen = cv2.resize(screen, (160, 144), interpolation=cv2.INTER_AREA)
+    return screen
 
 
 class SpriteIdentifier(object):
@@ -60,27 +68,18 @@ class SpriteIdentifier(object):
             out_dither += '\n'
         return out_text, out_dither
 
-    def extract_screen(self, raw):
-        screen_x, screen_y = 8, 41
-        screen = raw[screen_y:screen_y+432, screen_x:screen_x+480]
-        screen = cv2.resize(screen, (160, 144), interpolation=cv2.INTER_AREA)
-        return screen
-
     def stream_to_text(self, frame):
-        screen = self.extract_screen(frame)
-        if self.preview:
-            cv2.imshow('Stream', frame)
-            cv2.imshow("Game", screen)
-            cv2.waitKey(1)
-
+        screen = extract_screen(frame)
         return screen, self.screen_to_text(screen)
 
-    def handle_screen(self, data):
-        data['screen'] = self.extract_screen(data['frame'])
+    def handle(self, data):
+        if self.preview:
+            cv2.imshow('Stream', data['frame'])
+            cv2.imshow('Screen', data['screen'])
+            cv2.waitKey(1)
 
-    def handle_ocr(self, data):
-        screen, (text, dithered) = self.stream_to_text(data['frame'])
-        data.update(screen=screen, text=text, dithered=dithered)
+        text, dithered = self.screen_to_text(data['screen'])
+        data.update(text=text, dithered=dithered)
 
     def test_corpus(self):
         import os
@@ -98,7 +97,8 @@ class StreamProcessor(object):
         self.frame_skip = frame_skip
         self.handlers = []
         if default_handlers:
-            self.handlers.append(SpriteIdentifier().handle_ocr)
+            self.handlers.append(video.ScreenExtractor().handle)
+            self.handlers.append(SpriteIdentifier().handle)
             self.handlers.append(timestamp.TimestampRecognizer().handle)
 
     def add_handler(self, handler):
@@ -127,6 +127,8 @@ class StreamProcessor(object):
             for handler in self.handlers:
                 try:
                     handler(data)
+                except StopIteration:
+                    break
                 except Exception:
                     traceback.print_exc()
 
@@ -148,7 +150,7 @@ class StreamProcessor(object):
         thread.start_new_thread(self.process_frames, ())
 
 
-class LogHandler:
+class LogHandler(object):
     def __init__(self, key, fname, rep=None):
         self.key = key
         self.fd = open(fname, 'a')
@@ -170,12 +172,13 @@ if __name__ == '__main__':
 
     import delta
 
-    identifier = SpriteIdentifier(preview='--show' in sys.argv)
-    proc = StreamProcessor(identifier.stream_to_text, only_changes=False)
+    debug = '--show' in sys.argv
+    identifier = SpriteIdentifier(preview=debug)
+    proc = StreamProcessor()
+    #proc.add_handler(video.ScreenCompressor().handle)
     proc.add_handler(handler_stdout)
     proc.add_handler(LogHandler('text', 'frames.log').handle)
     proc.add_handler(delta.StringDeltaCompressor('dithered', verify=True).handle)
-    proc.add_handler(LogHandler('dithered_delta', 'frames_delta.log', rep=lambda s:s.replace('\t', '`')+'`').handle)
     proc.run()
 
     time.sleep(5)
