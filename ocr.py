@@ -63,7 +63,7 @@ class SpriteIdentifier(object):
     def extract_screen(self, raw):
         screen_x, screen_y = 8, 41
         screen = raw[screen_y:screen_y+432, screen_x:screen_x+480]
-        screen = cv2.resize(screen, (160, 144))
+        screen = cv2.resize(screen, (160, 144), interpolation=cv2.INTER_AREA)
         return screen
 
     def stream_to_text(self, frame):
@@ -73,35 +73,36 @@ class SpriteIdentifier(object):
             cv2.imshow("Game", screen)
             cv2.waitKey(1)
 
-        return self.screen_to_text(screen)
+        return screen, self.screen_to_text(screen)
+
+    def handle_screen(self, data):
+        data['screen'] = self.extract_screen(data['frame'])
+
+    def handle_ocr(self, data):
+        screen, (text, dithered) = self.stream_to_text(data['frame'])
+        data.update(screen=screen, text=text, dithered=dithered)
 
     def test_corpus(self):
         import os
         for fn in os.listdir('corpus'):
             print '#' * 20 + ' ' + fn
-            text, dithered = self.stream_to_text(cv2.cvtColor(cv2.imread('corpus/' + fn), cv2.COLOR_BGR2GRAY))
+            screen, (text, dithered) = self.stream_to_text(cv2.cvtColor(cv2.imread('corpus/' + fn), cv2.COLOR_BGR2GRAY))
             print dithered
 
 
 
 class StreamProcessor(object):
-    def __init__(self, identifier=None, bufsize=120, ratelimit=True,
-                 only_changes=True, frame_skip=0):
+    def __init__(self, bufsize=120, ratelimit=True, frame_skip=0, default_handlers=True):
         self.frame_queue = Queue.Queue(bufsize)
         self.ratelimit = ratelimit
-        if identifier is None:
-            identifier = SpriteIdentifier().stream_to_text
-        self.identifier = identifier
-        self.only_changes = only_changes
         self.frame_skip = frame_skip
-        self.set_default_handlers()
+        self.handlers = []
+        if default_handlers:
+            self.handlers.append(SpriteIdentifier().handle_ocr)
+            self.handlers.append(timestamp.TimestampRecognizer().handle)
 
     def add_handler(self, handler):
         self.handlers.append(handler)
-
-    def set_default_handlers(self):
-        self.handlers = []
-        self.handlers.append(timestamp.TimestampRecognizer().handle)
 
     def grab_frames(self):
         while True:
@@ -117,21 +118,17 @@ class StreamProcessor(object):
                     continue
 
     def process_frames(self):
-        last_text = ''
         cur = time.time()
         while True:
             prev = cur
             cur = time.time()
             frame = self.frame_queue.get()
-            text, dithered = self.identifier(frame)
-            if not self.only_changes or text != last_text:
-                data = {'text': text, 'dithered': dithered, 'frame': frame}
-                last_text = text
-                for handler in self.handlers:
-                    try:
-                        handler(data)
-                    except Exception:
-                        traceback.print_exc()
+            data = {'frame': frame}
+            for handler in self.handlers:
+                try:
+                    handler(data)
+                except Exception:
+                    traceback.print_exc()
 
             qsize = self.frame_queue.qsize()
             if self.ratelimit and qsize < 60:
@@ -139,11 +136,14 @@ class StreamProcessor(object):
                 # This hackily slows down processing as we run out of frames
                 time.sleep(max(0, 1/60. - (cur - prev) + 1/600.*(60-qsize)))
 
-    def run(self):
+    def get_stream_location(self):
         streamer = livestreamer.Livestreamer()
         plugin = streamer.resolve_url('http://twitch.tv/twitchplayspokemon')
         streams = plugin.get_streams()
-        self.stream = cv2.VideoCapture(streams['source'].url)
+        return streams['source'].url
+
+    def run(self):
+        self.stream = cv2.VideoCapture(self.get_stream_location())
         thread.start_new_thread(self.grab_frames, ())
         thread.start_new_thread(self.process_frames, ())
 
@@ -167,6 +167,8 @@ if __name__ == '__main__':
     def handler_stdout(data):
         print '\x1B[H' + data['timestamp'] + ' '*10
         print data['dithered']
+
+    import delta
 
     identifier = SpriteIdentifier(preview='--show' in sys.argv)
     proc = StreamProcessor(identifier.stream_to_text, only_changes=False)
