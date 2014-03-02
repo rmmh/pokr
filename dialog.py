@@ -132,7 +132,7 @@ class BattleState(object):
         else:
             self.opponent = m_wild.group(1)
         self.start_time = timestamp
-        self.lines = [start_text]
+        self.lines = [(timestamp, start_text)]
         self.state = self.STATE_NORMAL
         self.opponent_level = 0
 
@@ -163,16 +163,13 @@ class BattleState(object):
         if self.opponent_level == 0:
             self.opponent_level = self.read_enemy_level(lines)
 
-        if 'sent out' in text:
-            level = self.read_enemy_level(lines)
-            if level:
-                text = re.sub(r'( \S*!)$', r' L%02d\1' % level, text)
+        text = self.annotate(text, lines)
 
         for banned in self.banned_phrases:
             if banned in text:
                 break
         else:
-            self.lines.append(text)
+            self.lines.append((timestamp, text))
 
         if 'blacked out' in text:
             return True
@@ -184,6 +181,12 @@ class BattleState(object):
                 return True
             if self.re_enemy_faint.search(text):
                 self.state = self.STATE_WILD_BEATEN
+
+    def annotate(self, text, lines):
+        if 'sent out' in text:
+            level = self.read_enemy_level(lines)
+            if level:
+                text = re.sub(r'( \S*!)$', r' L%02d\1' % level, text)
         try:
             hp = self.read_hp(lines)
         except (ValueError, IndexError):
@@ -191,47 +194,51 @@ class BattleState(object):
 
         ext = ''
         if hp != self.last_hp:
-            if hp[2] < self.last_hp[2]:
-                ext += ' En: %d%% (%d%%)' % (hp[2], self.last_hp[2]-hp[2])
+            if hp[2] != self.last_hp[2]:
+                ext += ' En: %d%% (%d%%)' % (hp[2], hp[2]-self.last_hp[2])
             if hp[0] != self.last_hp[0] and hp[1] == self.last_hp[1]:
-                ext += ' Us: %d/%d (%d)' % (hp[0], hp[1], self.last_hp[0]-hp[0])
+                ext += ' Us: %d/%d (%d)' % (hp[0], hp[1], hp[0]-self.last_hp[0])
             self.last_hp = hp
-        if ext:
-            self.lines[-1] += ext
+        return text + ext
 
-    def finalize(self):
+    def __str__(self):
+        out = ''
         if self.trainer_battle:
-            print 'Trainer battle with', self.opponent, 'at', self.start_time
+            out += 'Trainer battle with %s at %s\n' % (self.opponent, self.start_time)
         else:
-            print 'Wild encounter with L%02d' % self.opponent_level,
-            print self.opponent, 'at', self.start_time
-        for line in self.lines[1:]:
-            print line
-        pass
-
+            out += 'Wild encounter with L%02d %s at %s\n' % (
+                self.opponent_level, self.opponent, self.start_time)
+        for timestamp, text in self.lines[1:]:
+            out += '   %-14s %s\n' % (timestamp, text)
+        return out
 
 class BattleTracker(object):
     def __init__(self):
         self.battle = None
+        self.battles = []
 
     def handle_text(self, text, lines, timestamp):
         if self.battle:
             if self.battle.feed(text, lines, timestamp):
-                self.battle.finalize()
+                self.battles.append(self.battle)
                 self.battle = None
-        if 'wants to' in text or 'appeared!' in text:
-            print '\n\n' # extra separator between battles
+        if 'wants to fight' in text or 'appeared!' in text:
             if self.battle:
-                self.battle.finalize()
+                self.battles.append(self.battle)
             self.battle = BattleState(text, timestamp)
 
-        #print timestamp.ljust(13), '*' if self.battle else ' ', text
+    def finalize(self):
+        for battle in self.battles[::-1]:
+            print battle
+            print '\n\n'
 
 if __name__ == '__main__':
+    import sys
+
     reader = BoxReader()
     tracker = BattleTracker()
-    reader.add_dialog_handler(BattleTracker().handle_text)
-    logs = open('frames.log')
+    reader.add_dialog_handler(tracker.handle_text)
+    logs = open(sys.argv[1] if len(sys.argv) > 1 else 'frames.log')
     for line in logs:
         line = line.replace('`', '\n')
         line = line[:line.rindex('\n')]
@@ -244,3 +251,4 @@ if __name__ == '__main__':
         except IndexError, e:
             print e
             print line
+    tracker.finalize()

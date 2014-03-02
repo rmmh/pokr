@@ -80,7 +80,11 @@ if __name__ == '__main__':
 
     class SavedStreamProcessor(ocr.StreamProcessor):
         def get_stream_location(self):
-            return '/home/ryan/games/tpp/stream.flv'
+            import sys
+            if len(sys.argv) > 1:
+                return sys.argv[1]
+            else:
+                return '/home/ryan/games/tpp/stream.flv'
 
     proc = SavedStreamProcessor(default_handlers=False)
     proc.add_handler(ScreenExtractor().handle)

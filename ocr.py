@@ -106,16 +106,21 @@ class StreamProcessor(object):
 
     def grab_frames(self):
         while True:
-            self.stream.grab()
-            for _ in range(self.frame_skip):
-                self.stream.grab()
-            success, frame = self.stream.retrieve()
-            if success:
-                try:
-                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    self.frame_queue.put(frame, block=False, timeout=1.)
-                except Queue.Full:
-                    continue
+            stream = cv2.VideoCapture(self.get_stream_location())
+            while True:
+                stream.grab()
+                for _ in range(self.frame_skip):
+                    stream.grab()
+                success, frame = stream.retrieve()
+                if success:
+                    try:
+                        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                        self.frame_queue.put(frame, block=False, timeout=1.)
+                    except Queue.Full:
+                        continue
+                else:
+                    print 'failed grabbing frame, reconnecting'
+                    break
 
     def process_frames(self):
         cur = time.time()
@@ -145,7 +150,6 @@ class StreamProcessor(object):
         return streams['source'].url
 
     def run(self):
-        self.stream = cv2.VideoCapture(self.get_stream_location())
         thread.start_new_thread(self.grab_frames, ())
         thread.start_new_thread(self.process_frames, ())
 
