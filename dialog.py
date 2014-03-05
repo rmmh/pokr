@@ -28,17 +28,18 @@ class BoxReader(object):
         self.lastgroup = []
         self.dialog_handlers = []
         self.max_dist = max_dist
+        self.continued = 0
 
     def add_dialog_handler(self, handler):
         self.dialog_handlers.append(handler)
 
     def handle_dialog(self, text, lines, timestamp):
-        #print text.replace('\n', '`')
-        text = text.replace(' ' * 18 + '\n', '')
+        #print 'handle_dialog', repr(text), self.continued
+
         if text == '':  # dialog disappeared
             if self.last:
                 self.group.append(self.last)
-            if self.group == self.lastgroup:
+            if self.group and self.lastgroup and self.group[0] == self.lastgroup[-1]:
                 # some screen effects make us lose the dialog temporarily
                 # prevent duplicate lines this way
                 self.group = []
@@ -46,6 +47,8 @@ class BoxReader(object):
                 out = ['']
                 for el in self.group:
                     for line in el.splitlines():
+                        if not line:
+                            continue
                         dist, merged = dist_merge(out[-1], line)
                         if dist < self.max_dist:
                             out[-1] = merged
@@ -53,12 +56,14 @@ class BoxReader(object):
                             out.append(line)
                 out = ' '.join(out).strip()
                 out = re.sub(r'\s+', ' ', out)
+                out = re.sub(r'- ', '', out)
                 for handler in self.dialog_handlers:
                     handler(out, lines, timestamp)
                 self.lastgroup = self.group
                 self.group = []
             self.last = text
             return
+        text = text.replace(' ' * 18 + '\n', '')
         if text.strip() in ('', self.last.strip()):
             return
         dist, merged = dist_merge(self.last, text)
@@ -71,23 +76,32 @@ class BoxReader(object):
                 self.last = text
 
     def handle(self, data):
-        lines = data['text'].splitlines()
+        def conv_tile_or_text(t):
+            if isinstance(t, int):
+                return ' '
+            if len(t) == 1:
+                return t
+            return t[1:]
+
+        lines = data['full']
+        lines = [map(conv_tile_or_text, lines[20 * i : 20 * i + 20]) for i in range(18)]
         timestamp = data['timestamp']
         boxes = []
+
         for box_y in range(18):
             for box_x in range(20):
-                if lines[box_y][box_x] == '#':
+                if lines[box_y][box_x] == 'o':
                     # might be a dialog box, trace
 
                     top_x = box_x + 1
-                    while top_x < 20 and lines[box_y][top_x] == '_':
+                    while top_x < 20 and lines[box_y][top_x] == '-':
                         top_x += 1
-                    if top_x == 20 or lines[box_y][top_x] != '#':
+                    if top_x == 20 or lines[box_y][top_x] != 'o':
                         break
                     left_y = box_y + 1
                     while left_y < 18 and lines[left_y][box_x] == '|' and lines[left_y][top_x] == '|':
                         left_y += 1
-                    if left_y == 18 or lines[left_y][box_x] != '#' or lines[left_y][top_x] != '#':
+                    if left_y == 18 or lines[left_y][box_x] != 'o' or lines[left_y][top_x] != 'o':
                         break
 
                     box = ''
@@ -99,6 +113,7 @@ class BoxReader(object):
         for coord, box in boxes:
             if coord == self.COORD_DIALOG:
                 self.handle_dialog(box, lines, timestamp)
+                break
             else:
                 continue
                 for banned_phrase in self.banned_phrases:
@@ -106,7 +121,7 @@ class BoxReader(object):
                         break
                 else:
                     print '%2d %2d %2d %2d' % coord, box.replace('\n', '`')
-        if not boxes:
+        else:
             self.handle_dialog('', lines, timestamp)
 
 class BattleState(object):
@@ -137,19 +152,19 @@ class BattleState(object):
         self.opponent_level = 0
 
     def read_hp(self, lines):
-        my_hp_bar = lines[10][11:18].split('/')
+        my_hp_bar = ''.join(lines[10][11:18]).split('/')
         my_hp_cur, my_hp_tot = int(my_hp_bar[0]), int(my_hp_bar[1])
-        enemy_hp_bar = lines[2][3:10]
-        if not re.match(r'%=*[1-7]?0*', enemy_hp_bar):
+        enemy_hp_bar = ''.join(lines[2][2:10])
+        if not re.match(r'HPP:([_=1-7]H)*', enemy_hp_bar):
             raise ValueError
-        enemy_hp_perc = int(sum(8 if c == '=' else int(c) for c in enemy_hp_bar[1:])*100/48.)
+        enemy_hp_perc = int(sum(0 if c == '_' else 8 if c == '=' else int(c) for c in enemy_hp_bar[4::2])*100/48.)
         return my_hp_cur, my_hp_tot, enemy_hp_perc
 
     def read_enemy_level(self, lines):
         try:
-            opp_level = lines[1][4:7]
-            if opp_level[0] == '@':
-                return int(opp_level[1:])
+            opp_level = lines[1][6:9]
+            if opp_level[0] == 'Lv':
+                return int(opp_level[1]+opp_level[2])
             return 0
         except ValueError:
             return 0
@@ -159,9 +174,6 @@ class BattleState(object):
             # our opponent has fainted, but we might have EXP gain lines
             if 'EXP' not in text:
                 return True
-
-        if self.opponent_level == 0:
-            self.opponent_level = self.read_enemy_level(lines)
 
         text = self.annotate(text, lines)
 
@@ -183,10 +195,19 @@ class BattleState(object):
                 self.state = self.STATE_WILD_BEATEN
 
     def annotate(self, text, lines):
+        if self.re_wild.match(text) or self.re_trainer.match(text):
+            self.opponent_level = 0
+
         if 'sent out' in text:
             level = self.read_enemy_level(lines)
             if level:
                 text = re.sub(r'( \S*!)$', r' L%02d\1' % level, text)
+
+        if self.opponent_level == 0:
+            self.opponent_level = self.read_enemy_level(lines)
+            if self.opponent_level:
+                text += ' EnLvl:%d' % self.opponent_level
+
         try:
             hp = self.read_hp(lines)
         except (ValueError, IndexError):

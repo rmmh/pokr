@@ -23,6 +23,7 @@ class FilteredPrinter(object):
 
 class DialogPusher(object):
     def handle(self, text, lines, timestamp):
+        print timestamp, text
         r.publish('pokemon.streams.dialog', json.dumps({'time': timestamp, 'text': text, 'lines': lines}))
 
 
@@ -36,6 +37,3 @@ proc.add_handler(box_reader.handle)
 proc.add_handler(FilteredPrinter().printer)
 proc.add_handler(pokr.LogHandler('text', 'frames.log').handle)
 proc.run()
-
-while True:
-    time.sleep(1)

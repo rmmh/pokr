@@ -1,0 +1,23 @@
+# Numbers are hex offsets
+0x: .,:;&@#
+10:ABCDEFGHIJKLMNOP
+20:QRSTUVWXYZ():;[]
+30:abcdefghijklmnop
+40:qrstuvwxyz
+60ws:'d'l'm'r's't'v
+70:'  -  ?!.&  }>
+#é
+7Aw:E
+80:$ ./, 0123456789
+81w:x*
+85w:Fg
+7Ew:VdMg
+A0w:POKE
+A9:o-o|oo
+B0:o-o|ooo-o|ooo-o
+C0:o-o|ooo-o|oo|oo
+D0:o-o|ooo-o|oo
+F0w:HPP:_H1H2H3H4H5H6H7H=H| o | Lv<
+103:|o
+105w:..
+108w:->IDNo
