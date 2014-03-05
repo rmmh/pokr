@@ -16,7 +16,7 @@ An OCR script for the TwitchPlaysPokemon stream.
 1. ```pip install -r ./requirements.txt```
 
 ##Usage
-```ocr.py [--show] ```: runs, displaying current status on stdout and dumping frames to frames.log
+```ocr.py [--show] [-f FILENAME]```: runs, displaying current status on stdout and dumping frames to frames.log
 
 Pokr can also be used as a module:
 

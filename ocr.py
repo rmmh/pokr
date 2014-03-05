@@ -141,8 +141,12 @@ class SpriteIdentifier(object):
 
 
 class StreamProcessor(object):
-    def __init__(self, bufsize=120, ratelimit=True, frame_skip=0, default_handlers=True, debug=False, video_loc=None):
+    def __init__(self, bufsize=120, ratelimit=None, frame_skip=0, default_handlers=True, debug=False, video_loc=None):
         self.frame_queue = Queue.Queue(bufsize)
+        if ratelimit is None:
+            # Automatically disable ratelimit if not using the default stream
+            # from Twitch. Users may want to set it to True/False directly.
+            ratelimit = video_loc is None
         self.ratelimit = ratelimit
         self.frame_skip = frame_skip
         self.handlers = []
@@ -254,7 +258,11 @@ if __name__ == '__main__':
     box_reader.add_dialog_handler(DialogPusher().handle)
 
     debug = '--show' in sys.argv
-    proc = StreamProcessor(debug=debug)
+    try:
+        video_loc = sys.argv[sys.argv.index('-f') + 1]
+    except (ValueError, IndexError):
+        video_loc = None
+    proc = StreamProcessor(debug=debug, video_loc=video_loc)
     #proc.add_handler(handler_stdout)
     proc.add_handler(LogHandler('text', 'frames.log').handle)
     proc.add_handler(delta.StringDeltaCompressor('dithered', verify=True).handle)
