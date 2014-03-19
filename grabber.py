@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 
-import time
-import json
-import sys
+# an example consumer of the pokr module, used by poke.ifies.com
+import sys; sys.path += ['..']  # hack to let us import it as a module from the same directory
 
-sys.path += ['..']
+import json
+import time
 
 import pokr
 import redis

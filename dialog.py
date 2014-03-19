@@ -2,6 +2,11 @@ import itertools
 import re
 
 def dist_merge(s1, s2):
+    '''
+    Calculate edit distance between two strings and what their
+    'merged' value should be. This reduces errors when
+    noise makes a character unrecognizable.
+    '''
     dist = 0
     out = ''
     for a, b in itertools.izip_longest(s1, s2, fillvalue=' '):
@@ -15,10 +20,11 @@ def dist_merge(s1, s2):
 
 
 class BoxReader(object):
+    '''Find each dialog box in the text version of the screen'''
+
     COORD_DIALOG = (0, 12, 19, 17)
     banned_phrases = (
-        'SAVE   \n',
-
+        'SAVE   \n',    # don't output the menu
     )
 
     def __init__(self, max_dist=3):
@@ -90,17 +96,20 @@ class BoxReader(object):
 
         for box_y in range(18):
             for box_x in range(20):
-                if lines[box_y][box_x] == 'o':
+                if lines[box_y][box_x] == 'o':  # top left corner
                     # might be a dialog box, trace
 
                     top_x = box_x + 1
+                    # top line
                     while top_x < 20 and lines[box_y][top_x] == '-':
                         top_x += 1
-                    if top_x == 20 or lines[box_y][top_x] != 'o':
+                    if top_x == 20 or lines[box_y][top_x] != 'o':   # top right
                         break
                     left_y = box_y + 1
+                    # left + right lines
                     while left_y < 18 and lines[left_y][box_x] == '|' and lines[left_y][top_x] == '|':
                         left_y += 1
+                    # bottom left/right corners
                     if left_y == 18 or lines[left_y][box_x] != 'o' or lines[left_y][top_x] != 'o':
                         break
 
@@ -125,6 +134,11 @@ class BoxReader(object):
             self.handle_dialog('', lines, timestamp)
 
 class BattleState(object):
+    '''
+    Track status (HP, LVL, etc) in a battle from the dialog and
+    text on the screen
+    '''
+
     re_wild = re.compile(r'Wild (.*) appeared')
     re_trainer = re.compile(r'(.*) wants to fight')
     re_enemy_faint = re.compile(r'Enemy .* fainted')
@@ -170,6 +184,10 @@ class BattleState(object):
             return 0
 
     def feed(self, text, lines, timestamp):
+        '''
+        handle a new line of dialog
+        returns True if it's the end of an encounter
+        '''
         if self.state == self.STATE_WILD_BEATEN:
             # our opponent has fainted, but we might have EXP gain lines
             if 'EXP' not in text:
@@ -195,13 +213,16 @@ class BattleState(object):
                 self.state = self.STATE_WILD_BEATEN
 
     def annotate(self, text, lines):
+        '''
+        Add useful context (levels, damage amounts) to a line of dialog
+        '''
         if self.re_wild.match(text) or self.re_trainer.match(text):
             self.opponent_level = 0
 
         if 'sent out' in text:
             level = self.read_enemy_level(lines)
             if level:
-                text = re.sub(r'( \S*!)$', r' L%02d\1' % level, text)
+                text = re.sub(r'sent out ( \S*!)$', r'sent out L%02d\1' % level, text)
 
         if self.opponent_level == 0:
             self.opponent_level = self.read_enemy_level(lines)
@@ -232,44 +253,3 @@ class BattleState(object):
         for timestamp, text in self.lines[1:]:
             out += '   %-14s %s\n' % (timestamp, text)
         return out
-
-class BattleTracker(object):
-    def __init__(self):
-        self.battle = None
-        self.battles = []
-
-    def handle_text(self, text, lines, timestamp):
-        if self.battle:
-            if self.battle.feed(text, lines, timestamp):
-                self.battles.append(self.battle)
-                self.battle = None
-        if 'wants to fight' in text or 'appeared!' in text:
-            if self.battle:
-                self.battles.append(self.battle)
-            self.battle = BattleState(text, timestamp)
-
-    def finalize(self):
-        for battle in self.battles[::-1]:
-            print battle
-            print '\n\n'
-
-if __name__ == '__main__':
-    import sys
-
-    reader = BoxReader()
-    tracker = BattleTracker()
-    reader.add_dialog_handler(tracker.handle_text)
-    logs = open(sys.argv[1] if len(sys.argv) > 1 else 'frames.log')
-    for line in logs:
-        line = line.replace('`', '\n')
-        line = line[:line.rindex('\n')]
-        if len(line) < 18 * 21:
-            # line too short generally means we've hit EOF
-            continue
-        try:
-            data = {'text': line[:line.rindex('\n')+1], 'timestamp': line[line.rindex('\n')+1:]}
-            reader.handle(data)
-        except IndexError, e:
-            print e
-            print line
-    tracker.finalize()

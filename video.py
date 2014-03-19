@@ -23,7 +23,7 @@ class ScreenExtractor(object):
     def handle(self, data):
         self.n += 1
         data['screen'] = ocr.extract_screen(data['frame'])
-        trunc = data['screen'] >> 6  # / 64
+        trunc = data['screen'] >> 6  # / 64 -> values in [0, 3]
         data['changed'] = not numpy.array_equal(trunc, self.last)
         data['frame_n'] = self.n
         if not data['changed']:
@@ -33,6 +33,14 @@ class ScreenExtractor(object):
 
 
 class ScreenCompressor(object):
+    '''
+    Experimental compression for very low-bandwidth video streaming.
+
+    Packing each frame as 2bpp as a series of 8x8 blocks (matching the GameBoy
+    sprite size), then applying a generic LZ77 compressor (LZ4 performs better
+    than DEFLATE) reduces the video stream from >1000kbps to <10kbps (<5MB/hr).
+    '''
+
     FRAME_BYTES = 144 * 160 * 2 / 8
 
     def __init__(self, fname=None, debug=False):

@@ -1,7 +1,7 @@
 ##pokr
 ======
 
-An OCR script for the TwitchPlaysPokemon stream.
+OCR for the TwitchPlaysPokemon stream.
 
 ##Installation:
 ####Mac

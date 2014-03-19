@@ -24,6 +24,7 @@ def extract_screen(raw):
 
 
 class SpriteIdentifier(object):
+    '''Convert image sprites into a text format'''
     def __init__(self, debug=False):
         self.debug = debug
         if self.debug:
@@ -141,7 +142,8 @@ class SpriteIdentifier(object):
 
 
 class StreamProcessor(object):
-    def __init__(self, bufsize=120, ratelimit=None, frame_skip=0, default_handlers=True, debug=False, video_loc=None):
+    '''Grab frames from input and process with handlers'''
+    def __init__(self, bufsize=120, ratelimit=True, frame_skip=0, default_handlers=True, debug=False, video_loc=None):
         self.frame_queue = Queue.Queue(bufsize)
         if ratelimit is None:
             # Automatically disable ratelimit if not using the default stream
@@ -188,7 +190,7 @@ class StreamProcessor(object):
             cur = time.time()
             # give a timeout to avoid python Issue #1360:
             # Ctrl-C doesn't kill threads waiting on queues
-            frame = self.frame_queue.get(True, 60*60*24)  
+            frame = self.frame_queue.get(True, 60*60*24)
             if frame is None:
                 return
             data = {'frame': frame}

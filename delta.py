@@ -55,7 +55,7 @@ class StringDeltaCompressor(object):
                     in_match = True
                     match_begin = n
 
-        # emit last match
+        # emit last match if not already emitted
         if not in_match:
             buf += emit(offset, mismatch_begin, n - mismatch_begin + 1)
         elif mismatch_begin < match_begin:
