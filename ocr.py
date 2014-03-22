@@ -17,9 +17,12 @@ import video
 
 
 def extract_screen(raw):
-    screen_x, screen_y = 8, 41
-    screen = raw[screen_y:screen_y+432, screen_x:screen_x+480]
-    screen = cv2.resize(screen, (160, 144), interpolation=cv2.INTER_AREA)
+    #screen_x, screen_y = 8, 41
+    #screen = raw[screen_y:screen_y+432, screen_x:screen_x+480]
+    #screen = cv2.resize(screen, (160, 144), interpolation=cv2.INTER_AREA)
+    screen_x, screen_y = 8, 8
+    screen = raw[screen_y:screen_y+640, screen_x:screen_x+960]
+    screen = cv2.resize(screen, (240, 160), interpolation=cv2.INTER_AREA)
     return screen
 
 
@@ -30,8 +33,9 @@ class SpriteIdentifier(object):
         if self.debug:
             cv2.namedWindow("Stream", cv2.WINDOW_AUTOSIZE)
             cv2.namedWindow("Game", cv2.WINDOW_AUTOSIZE)
-        self.tile_map = self.make_tilemap('crystal_tiles.png')
-        self.tile_text = self.make_tile_text('crystal_tiles.txt')
+        self.tile_map = self.make_tilemap('emerald_tiles.png')
+        self.tile_text = self.make_tile_text('emerald_tiles.txt')
+        self.ocr_engine = video.OCREngine(self.tile_map, self.tile_text)
 
 
     def make_tile_text(self, fname):
@@ -63,30 +67,35 @@ class SpriteIdentifier(object):
 
     def make_tilemap(self, name):
         path = os.path.abspath(os.path.dirname(__file__)) + '/' + name
-        tiles = cv2.cvtColor(cv2.imread(path), cv2.COLOR_BGR2GRAY) < 128
+        tiles = cv2.cvtColor(cv2.imread(path), cv2.COLOR_BGR2GRAY)
 
-        tile_map = {}
+        sprites = []
 
         n = -1
-        for y in xrange(len(tiles) / 8):
-            for x in xrange(128 / 8):
+        for y in xrange(len(tiles) / 16):
+            for x in xrange(len(tiles[0]) / 8):
                 n += 1
-                sprite = self.sprite_to_int(tiles, x, y)
-                if sprite == 0:
+                sprite = self.sprite_to_quant(tiles, x, y)
+                if not sprite:
                     continue
-                if sprite in tile_map:
-                    print 'huh', x*8, y*8, tile_map[sprite], sprite
-                tile_map[sprite] = n
+                sprites.append((n, sprite))
 
-        return tile_map
+        #print "sprites:", sprites
+        return sprites
 
-    def sprite_to_int(self, image, left, top):
-        bits = (image[top*8:top*8+8, left*8:left*8+8]).flat
-        out = 0
-        for n,bit in enumerate(bits):
-            if bit:
-                out |= 1<<(63-n)
-        return out
+    def sprite_to_quant(self, image, left, top):
+        bits = (image[top*16:top*16+15, left*8:left*8+8]).flatten(order='F')
+        palette = sorted(set(bits), reverse=True)
+        if len(palette) == 1:
+            return []
+        palette_map = {color: n for n, color in enumerate(palette)}
+        buf = [palette_map[color] for color in bits]
+        while set(buf[-15:]) == {0}:
+            buf = buf[:-15]
+        while set(buf[:15]) == {0}: buf = buf[15:]
+        #print left, top, buf
+        assert(len(set(buf)) == 3)
+        return buf
 
     def screen_to_tiles(self, screen):
         screen = screen < 128
@@ -104,7 +113,7 @@ class SpriteIdentifier(object):
         return out
 
     def screen_to_text(self, screen):
-        tiles = self.screen_to_tiles(screen)
+        tiles = self.ocr_engine.identify(screen)
         out_text = ''
         out_dither = ''
         out_full = []
@@ -134,10 +143,13 @@ class SpriteIdentifier(object):
 
     def test_corpus(self):
         import os
+        import time
         for fn in os.listdir('corpus'):
             print '#' * 20 + ' ' + fn
-            screen, (text, dithered) = self.stream_to_text(cv2.cvtColor(cv2.imread('corpus/' + fn), cv2.COLOR_BGR2GRAY))
-            print dithered
+            im = cv2.cvtColor(cv2.imread('corpus/' + fn), cv2.COLOR_BGR2GRAY)
+            start = time.time()
+            screen, (full, text, dithered) = self.stream_to_text(im)
+            print dithered, "%.1f"%((time.time()-start)*1000)
 
 
 
@@ -240,7 +252,8 @@ class LogHandler(object):
             self.fd.write(self.rep(text) + data['timestamp'] + '\n')
 
 if __name__ == '__main__':
-    #SpriteIdentifier().test_corpus();q
+    SpriteIdentifier().test_corpus();q
+
 
     def handler_stdout(data):
         print '\x1B[H' + data['timestamp'] + ' '*10
@@ -266,7 +279,7 @@ if __name__ == '__main__':
         video_loc = None
     proc = StreamProcessor(debug=debug, video_loc=video_loc)
     #proc.add_handler(handler_stdout)
-    proc.add_handler(LogHandler('text', 'frames.log').handle)
-    proc.add_handler(delta.StringDeltaCompressor('dithered', verify=True).handle)
-    proc.add_handler(box_reader.handle)
+    #proc.add_handler(LogHandler('text', 'frames.log').handle)
+    #proc.add_handler(delta.StringDeltaCompressor('dithered', verify=True).handle)
+    #proc.add_handler(box_reader.handle)
     proc.run()
