@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import collections
 import os
 import re
 import sys
@@ -57,6 +58,9 @@ class SpriteIdentifier(object):
                 if 'x' in flags:
                     offset += 1024
                 letters = m.group(3)
+                if 'l' in flags:
+                    out[offset] = letters
+                    continue
                 width = 1 + wide
                 for i in xrange(0, len(letters), width):
                     t = letters[i:i+width]
@@ -84,15 +88,14 @@ class SpriteIdentifier(object):
         return sprites
 
     def sprite_to_quant(self, image, left, top):
-        bits = (image[top*16:top*16+15, left*8:left*8+8]).flatten(order='F')
-        palette = sorted(set(bits), reverse=True)
+        bits = (image[top*16:top*16+14, left*8:left*8+8]).flatten(order='F')
+        palette = collections.OrderedDict.fromkeys(bits)
         if len(palette) == 1:
             return []
         palette_map = {color: n for n, color in enumerate(palette)}
         buf = [palette_map[color] for color in bits]
-        while set(buf[-15:]) == {0}:
-            buf = buf[:-15]
-        while set(buf[:15]) == {0}: buf = buf[15:]
+        while set(buf[-14:]) == {0}: buf = buf[:-14]
+        while set(buf[:14]) == {0}: buf = buf[14:]
         #print left, top, buf
         assert(len(set(buf)) == 3)
         return buf
@@ -113,20 +116,7 @@ class SpriteIdentifier(object):
         return out
 
     def screen_to_text(self, screen):
-        tiles = self.ocr_engine.identify(screen)
-        out_text = ''
-        out_dither = ''
-        out_full = []
-        for n, tile in enumerate(tiles):
-            text = self.tile_text.get(tile, None)
-            out_full.append(text or tile)
-            text = (text or ' ')[0]
-            out_text += text
-            out_dither += text if text != ' ' else self.tile_text.get(tile + 1024, ' ')[0]
-            if n % 20 == 19:
-                out_text += '\n'
-                out_dither += '\n'
-        return out_full, out_text, out_dither
+        return self.ocr_engine.identify(screen)
 
     def stream_to_text(self, frame):
         screen = extract_screen(frame)
@@ -138,19 +128,18 @@ class SpriteIdentifier(object):
             cv2.imshow('Screen', data['screen'])
             cv2.waitKey(1)
 
-        full, text, dithered = self.screen_to_text(data['screen'])
-        data.update(text=text, dithered=dithered, full=full)
+        text = self.screen_to_text(data['screen'])
+        data.update(text=text)
 
-    def test_corpus(self):
+    def test_corpus(self, directory='corpus'):
         import os
         import time
-        for fn in os.listdir('corpus'):
+        for fn in os.listdir(directory):
             print '#' * 20 + ' ' + fn
-            im = cv2.cvtColor(cv2.imread('corpus/' + fn), cv2.COLOR_BGR2GRAY)
+            im = cv2.cvtColor(cv2.imread(directory + '/' + fn), cv2.COLOR_BGR2GRAY)
             start = time.time()
-            screen, (full, text, dithered) = self.stream_to_text(im)
-            print dithered, "%.1f"%((time.time()-start)*1000)
-
+            screen, text = self.stream_to_text(im)
+            print "%.1f"%((time.time()-start)*1000), text
 
 
 class StreamProcessor(object):
@@ -176,6 +165,7 @@ class StreamProcessor(object):
     def grab_frames(self):
         while True:
             stream = cv2.VideoCapture(self.get_stream_location())
+            #stream.set(cv2.cv.CV_CAP_PROP_POS_MSEC, (3*60+10)*1000)
             while True:
                 stream.grab()
                 for _ in range(self.frame_skip):
@@ -206,13 +196,25 @@ class StreamProcessor(object):
             if frame is None:
                 return
             data = {'frame': frame}
+            times = []
+            tot_elapsed = 0
             for handler in self.handlers:
                 try:
+                    start = time.time()
                     handler(data)
                 except StopIteration:
                     break
                 except Exception:
                     traceback.print_exc()
+                finally:
+                    elapsed = time.time() - start
+                    tot_elapsed += elapsed
+                    times.append((handler, elapsed))
+            if tot_elapsed > 1/60.0:
+                print 'warning, slow frame', sorted(times, key=lambda x: x[1], reverse=True)
+                #cv2.imwrite('slow_%s_%f.png' % (data['timestamp'], tot_elapsed), data['frame'])
+
+
 
             qsize = self.frame_queue.qsize()
             if self.ratelimit and qsize < 60:
@@ -252,7 +254,7 @@ class LogHandler(object):
             self.fd.write(self.rep(text) + data['timestamp'] + '\n')
 
 if __name__ == '__main__':
-    SpriteIdentifier().test_corpus();q
+    SpriteIdentifier().test_corpus('corpus_slow');q
 
 
     def handler_stdout(data):
@@ -261,12 +263,19 @@ if __name__ == '__main__':
 
     import delta
     import dialog
+    import redis
+    import json
+
+    r = redis.Redis()
 
     class DialogPusher(object):
         def __init__(self):
             self.tracker = dialog.BattleState('blah wants to fight', '')
-        def handle(self, text, lines, timestamp):
-            print timestamp, repr(self.tracker.annotate(text, lines))
+        def handle(self, text, data):
+            timestamp = data['timestamp']
+            lines = ''
+            print data['timestamp'], text#repr(self.tracker.annotate(text, data))
+            r.publish('pokemon.streams.dialog', json.dumps({'time': timestamp, 'text': text, 'lines': lines}))
 
 
     box_reader = dialog.BoxReader()
@@ -281,5 +290,5 @@ if __name__ == '__main__':
     #proc.add_handler(handler_stdout)
     #proc.add_handler(LogHandler('text', 'frames.log').handle)
     #proc.add_handler(delta.StringDeltaCompressor('dithered', verify=True).handle)
-    #proc.add_handler(box_reader.handle)
+    proc.add_handler(box_reader.handle)
     proc.run()

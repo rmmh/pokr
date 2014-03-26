@@ -9,20 +9,20 @@ class TimestampRecognizer(object):
 
     # these represent number of set pixels in each column
     col_to_char = {
-       'DGGEEDEJGDD': '0',
-       'BBDJJJJBBB': '1',
-       'EHHGGEGHGEE': '2',
-       'BEEEEEGJHEE': '3',
-       'DEEEGEJJJBB': '4',
-       'GHHEEEEHHDD': '5',
-       'GJJEEEEHHDD': '6',
-       'DDDEGGEGEDD': '7',
-       'EJJEEEEJJEE': '8',
-       'DHHEEEEJJGG': '9',
-       'DDDDDDDDKK': 'd',
-       'KKBBBBGE': 'h',
-       'HHBBHGBBBGG': 'm',
-       'DDEEEEEEBB': 's'
+    'JJCCCCJJ':     '0',
+    'CCLLBB':       '1',
+    'FFDDDDEEFF':   '2',
+    'DDCCDDDDII':   '3',
+    'GGDDCCLLBB':   '4',
+    'GGDDDDDDGG':   '5',
+    'JJDDDDDDGG':   '6',
+    'BBBBFFDDFF':   '7',
+    'IIDDDDDDII':   '8',
+    'FFDDDDDDJJ':   '9',
+    'FFCCCCCCLL':   'd',
+    'LLBBBBBBGG':   'h',
+    'HHBBHHBBGG':   'm',
+    'DDDDDDDDEE':   's'
     }
 
     def __init__(self):
@@ -30,7 +30,7 @@ class TimestampRecognizer(object):
         self.timestamp_s = 0
 
     def handle(self, data):
-        x1, x2, y1, y2 = 232, 231+147, 9, 9 + 25
+        x1, x2, y1, y2 = 970, 970+147, 48, 48 + 32
         timestamp = data['frame'][y1:y2, x1:x2]
         col_sum = (timestamp > 150).sum(axis=0)  # Sum bright pixels in each column
         col_str = (col_sum *.5 + ord('A')).astype(numpy.int8).tostring()  #

@@ -31,160 +31,137 @@ void pack2bpp(uint8_t *in, uint8_t *out) {
 
 #define MAX_PALETTE_SIZE 16
 
-struct color_stat {
-    int color, count, sum, squaresum;
-};
+const int kSpriteX = 7;
+const int kSpriteY = 14;
 
 #define SP_PIX(x, y) image[(y)+(x)*160]
-#define WITHIN(a, b, bounds) ((a) > (b) - (bounds) && (a) < (b) + (bounds))
 
-inline float compute_sigma(struct color_stat *stat) {
-    float mean = (float)stat->sum / stat->count;
-    float meansquare = (float)stat->squaresum / stat->count;
-    return sqrt(meansquare - mean * mean);
+void translate_bytes(uint8_t *image, int len, uint8_t *table) {
+    int i;
+    for (i = 0; i < len; ++i) {
+        image[i] = table[image[i]];
+    }
 }
 
-void identify_sprites(uint8_t *image, sprite_t *sprites, sp_match_t *matched, int max_matches) {
+static struct sprite *find_sprite(uint8_t *needle, struct sprite *haystack, int n_sprites) {
+    int i;
+    for (i = 0; i < n_sprites; ++i) {
+        uint8_t *sprite_color = haystack[i].image;
+        uint8_t *screen_color = needle;
+        while (screen_color - needle < haystack[i].width * kSpriteY) {
+            if (*screen_color++ != *sprite_color++)
+                goto next_sprite;
+        }
+        return haystack + i;
+        next_sprite:;
+    }
+
+    return NULL;
+}
+
+int identify_sprites(uint8_t *image, struct sprite *sprites, int n_sprites, struct sprite_match *matched, int max_matches) {
     /*
     Identify sprites using fuzzy palette pattern matching
     */
     int x, y;
-    int n_matched = 0;
-    const int kTolerance = 5;
-    const int kSpriteX = 7;
-    const int kSpriteY = 15;
+
+    int considered = 0;
+    int match_count = 0;
+
     for (y = 1; y < 160 - kSpriteY; ++y) {
         int found = 0;
+        int lastX = -1;
         for (x = 0; x < 240 - kSpriteX; ++x) {
             // skip if it's not solid above
+            ///*
             int off;
             int prev = SP_PIX(x, y - 1);
             for (off = 1; off < kSpriteX; ++off) {
-                int cur = SP_PIX(x + off, y - 1);
-                if (!WITHIN(cur, prev, kTolerance)) {
+                if (SP_PIX(x + off, y - 1) != prev) {
+                    x += off;
                     goto next_x;
                 }
             }
+            //*/
 
             // skip if it's a solid line on the left
             int count = 0;
             prev = SP_PIX(x, y);
             for (off = 1; off < kSpriteY; ++off) {
-                int cur = SP_PIX(x + off, y - 1);
-                if (!WITHIN(cur, prev, kTolerance)) {
-                    goto next_x;
-                }
                 if (SP_PIX(x, y + off) == prev) {
                     count++;
                 } else {
                     break;
                 }
             }
-            if (count == 15)
+            if (count == 13) {
                 goto next_x;
-
+            }
+            //*/
 
             // extract tile
-            uint8_t screen_tile[7 * 15];
+            uint8_t screen_tile[7 * 14];
+            uint8_t *screen_out = screen_tile;
+            uint8_t color_palette[MAX_PALETTE_SIZE] = {0};
+            int n_colors = 0;
             int sp_x, sp_y;
             for (sp_x = 0; sp_x < kSpriteX; ++sp_x) {
                 for (sp_y = 0; sp_y < kSpriteY; ++sp_y) {
-                    screen_tile[sp_x * kSpriteY + sp_y] = SP_PIX(x + sp_x, y + sp_y);
+                    int color = SP_PIX(x + sp_x, y + sp_y);
+                    if (!color_palette[color]) {
+                        color_palette[color] = ++n_colors;
+                    }
+                    *screen_out++ = color_palette[color] - 1;
                 }
             }
 
-            // skip low-variance tiles
-            {
-                int sum = 0;
-                int squaresum = 0;
-                int ind;
-                for (ind = 0; ind < sizeof(screen_tile); ++ind) {
-                    int color = screen_tile[ind];
-                    squaresum += color * color;
-                    sum += color;
-                }
-
-                int var = squaresum/128 - (sum/128) * (sum/128);
-
-                if (var < 1500) {
-                    goto next_x;
-                }
+            if (n_colors != 3) {
+                continue;
             }
 
+            considered++;
 
-            sprite_t *cur_sprite = sprites;
-            for (cur_sprite = sprites; cur_sprite->id != -1; ++cur_sprite) {
-                struct color_stat palette_stats[MAX_PALETTE_SIZE];
-                memset(&palette_stats, 0, sizeof(palette_stats));
-                uint8_t *sprite_color = cur_sprite->image;
-                uint8_t *screen_color = screen_tile;
-                int ind;
-                int mismatch = 0;
-                for (ind = 0; ind < cur_sprite->width * kSpriteY; ++ind) {
-                    int color = *screen_color;
-                    struct color_stat *stat = &palette_stats[*sprite_color];
-                    if (!stat->count) {
-                        stat->color = color;
-                    } else {
-                        if (stat->color > (color + kTolerance) || stat->color < (color - kTolerance)) {
-                            mismatch++;
-                            if (mismatch > cur_sprite->width - 2)
-                                goto next_sprite;
-                        }
-                    }
-                    stat->count++;
-                    /*
-                    stat->sum += color;
-                    stat->squaresum += color * color;
-                    */
-                    sprite_color++;
-                    screen_color++;
-                }
+            if (0 && y == 137) {
+                for (off = 0; off < sizeof(screen_tile); ++off) printf("%c", "01234"[screen_tile[off]]);
+                printf("\n");
+            }
 
-                if (WITHIN(palette_stats[0].color, palette_stats[1].color, kTolerance)
-                    || WITHIN(palette_stats[1].color, palette_stats[2].color, kTolerance)
-                    || WITHIN(palette_stats[0].color, palette_stats[2].color, kTolerance)) {
-                    continue;
-                }
+            struct sprite *sprite = find_sprite(screen_tile, sprites, n_sprites);
+            if (sprite) {
+                matched[match_count].x = x;
+                matched[match_count].y = y;
+                matched[match_count].id = sprite->id;
+                matched[match_count].text = sprite->text;
+                matched[match_count].space = 0;
 
-                /*
-
-                struct color_stat tot = {0};
-                float sigma_total = 0.0f;
-                struct color_stat *stat = palette_stats;
-                for (stat = palette_stats; stat->count; ++stat) {
-                    sigma_total += compute_sigma(stat);
-                    tot.count += stat->count;
-                    tot.sum += stat->sum;
-                    tot.squaresum += stat->squaresum;
-                }
-
-                // skip low-variance tiles
-                /*
-                if (compute_sigma(&tot) < 5.0) {
-                    continue;
-                }
-                */
-
-                //if (sigma_total < 3.0)
-                {
-                    if (!found) {
-                        printf("y:%d ", y);
-                    }
-                    putchar(cur_sprite->code);
+                if (!found) {
                     found = 1;
-                    //printf("%c x:%d y:%d c:%d sp.id:%d sp.w:%d sigma_total:%.3f\n", cur_sprite->code, x, y, tot.count, cur_sprite->id, cur_sprite->width, sigma_total);
-                    x += cur_sprite->width - 1;
-                    break;
+                    //printf("y:%d ", y);
                 }
-                next_sprite:;
+
+                if (lastX != -1 && x > lastX + 3) {
+                    //putchar(' ');
+                    matched[match_count].space = 1;
+                }
+
+                if (++match_count >= max_matches) {
+                    return match_count;
+                }
+
+
+                //printf("%s", sprite->code);
+                x += sprite->width - 1;
+                lastX = x;
             }
             next_x:;
         }
         if (found) {
-            y += 14;
-            printf("\n");
+            y += 13;
+            //printf("\n");
         }
     }
+    //printf("considered: %d\n", considered);
+
+    return match_count;
     //printf("\n");
 }

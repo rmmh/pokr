@@ -36,23 +36,50 @@ class ScreenExtractor(object):
 
 class OCREngine(object):
     def __init__(self, sprites, sprite_text):
-        self.sprites = ffi.new('sprite_t[]', len(sprites) + 1)
+        self.sprite_text = ''
+        self.sprites = ffi.new('struct sprite[]', len(sprites) + 1)
+        self.n_sprites = len(sprites)
+        sprites.sort(key=lambda (id, buf): buf)
         for sprite_n, (sprite_id, sprite_buf) in enumerate(sprites):
             sprite = self.sprites[sprite_n]
             sprite.id = sprite_id
-            sprite.code = sprite_text.get(sprite_id, '#')
-            sprite.width = max(3, len(sprite_buf) / 15)
+            text = sprite_text.get(sprite_id, '#')
+            sprite.text = text
+            sprite.width = max(3, len(sprite_buf) / 14)
             sprite.image = sprite_buf
         self.sprites[len(sprites)].id = -1
         #print repr(list(self.sprites[0].image[0:128]))
 
+        self.map = ffi.new('uint8_t[]', 256)
+        #  61 is the dark red of the down arrow on text boxes
+        #  Map it to 2 so the OCR engine's 3 color heuristic isn't confused.
+        for color, n in ((246, 1), (206, 2), (97, 3), (61, 3)):
+            for off in range(-9, 9):
+                self.map[color + off] = n
+
+        self.last_image = None
+
     def identify(self, screen):
         #return []
         max_matches = 128
-        results = ffi.new('sp_match_t[]', max_matches)
-        pimage = ffi.cast('uint8_t *', screen.flatten(order='F').ctypes.data)
-        C.identify_sprites(pimage, self.sprites, results, max_matches)
-        return []
+        image = screen.flatten(order='F')
+        pimage = ffi.cast('uint8_t *', image.ctypes.data)
+        C.translate_bytes(pimage, 240*160, self.map)
+        if numpy.array_equal(image, self.last_image):
+            return self.last_out
+        self.last_image = image
+        results = ffi.new('struct sprite_match[]', max_matches)
+        matched = C.identify_sprites(pimage, self.sprites, self.n_sprites, results, max_matches)
+        out = []
+        lastY = None
+        for n in xrange(matched):
+            match = results[n]
+            if match.y != lastY:
+                out += [[match.y, '']]
+                lastY = match.y
+            out[-1][1] += ' ' * match.space + ffi.string(match.text)
+        self.last_out = out
+        return out
 
 
 class ScreenCompressor(object):
