@@ -43,25 +43,27 @@ void translate_bytes(uint8_t *image, int len, uint8_t *table) {
     }
 }
 
-static struct sprite *find_sprite(uint8_t *needle, struct sprite *haystack, int n_sprites) {
-    int i;
-    for (i = 0; i < n_sprites; ++i) {
-        uint8_t *sprite_color = haystack[i].image;
-        uint8_t *screen_color = needle;
-        while (screen_color - needle < haystack[i].width * kSpriteY) {
-            if (*screen_color++ != *sprite_color++)
-                goto next_sprite;
-        }
-        return haystack + i;
-        next_sprite:;
-    }
+static struct sprite *find_sprite(uint32_t *needle, struct sprite *haystack, int n_sprites) {
+    int low = 0, high = n_sprites;
 
+    /* binary search to find a match */
+    while (low + 1 < high) {
+        int mid = (low + high) / 2;
+        int dir = memcmp(needle, haystack[mid].image, sizeof(*needle) * haystack[mid].width);
+        if (dir == 0) {
+            return &haystack[mid];
+        } else if (dir < 0) {
+            high = mid;
+        } else if (dir > 0) {
+            low = mid;
+        }
+    }
     return NULL;
 }
 
 int identify_sprites(uint8_t *image, struct sprite *sprites, int n_sprites, struct sprite_match *matched, int max_matches) {
     /*
-    Identify sprites using fuzzy palette pattern matching
+    Identify sprites using palette pattern matching
     */
     int x, y;
 
@@ -100,19 +102,20 @@ int identify_sprites(uint8_t *image, struct sprite *sprites, int n_sprites, stru
             //*/
 
             // extract tile
-            uint8_t screen_tile[7 * 14];
-            uint8_t *screen_out = screen_tile;
+            uint32_t screen_tile[7];
             uint8_t color_palette[MAX_PALETTE_SIZE] = {0};
             int n_colors = 0;
             int sp_x, sp_y;
             for (sp_x = 0; sp_x < kSpriteX; ++sp_x) {
+                uint32_t col = 0;
                 for (sp_y = 0; sp_y < kSpriteY; ++sp_y) {
                     int color = SP_PIX(x + sp_x, y + sp_y);
                     if (!color_palette[color]) {
                         color_palette[color] = ++n_colors;
                     }
-                    *screen_out++ = color_palette[color] - 1;
+                    col = (color_palette[color] - 1) | (col << 2);
                 }
+                screen_tile[sp_x] = col;
             }
 
             if (n_colors != 3) {
@@ -130,17 +133,14 @@ int identify_sprites(uint8_t *image, struct sprite *sprites, int n_sprites, stru
             if (sprite) {
                 matched[match_count].x = x;
                 matched[match_count].y = y;
-                matched[match_count].id = sprite->id;
-                matched[match_count].text = sprite->text;
+                matched[match_count].sp = sprite;
                 matched[match_count].space = 0;
 
                 if (!found) {
                     found = 1;
-                    //printf("y:%d ", y);
                 }
 
                 if (lastX != -1 && x > lastX + 3) {
-                    //putchar(' ');
                     matched[match_count].space = 1;
                 }
 
@@ -148,8 +148,6 @@ int identify_sprites(uint8_t *image, struct sprite *sprites, int n_sprites, stru
                     return match_count;
                 }
 
-
-                //printf("%s", sprite->code);
                 x += sprite->width - 1;
                 lastX = x;
             }
@@ -157,11 +155,57 @@ int identify_sprites(uint8_t *image, struct sprite *sprites, int n_sprites, stru
         }
         if (found) {
             y += 13;
-            //printf("\n");
         }
     }
-    //printf("considered: %d\n", considered);
 
     return match_count;
-    //printf("\n");
+}
+
+/* try to combine two different sprite match structures into one, aborting if they have two sprites with the same positions and different ids
+   this improves noise tolerance  */
+int merge_sprites(struct sprite_match *a, int a_count, struct sprite_match *b, int b_count, struct sprite_match *dest, int dest_count, int *overlap_out) {
+    int overlap = 0;
+    int ind_a = 0, ind_b = 0, ind_dest = 0;
+    while (ind_a < a_count && ind_b < b_count && ind_dest < dest_count && a[ind_a].sp && b[ind_b].sp) {
+        int diff = a[ind_a].y - b[ind_b].y;
+        if (!diff)
+            diff = a[ind_a].x - b[ind_b].x;
+
+        if (diff < 0) {
+            dest[ind_dest++] = a[ind_a++];
+        } else if (diff > 0) {
+            dest[ind_dest++] = b[ind_b++];
+        } else {
+            if (a[ind_a].sp != b[ind_b].sp) {
+                *overlap_out = 0;
+                return 0;
+            }
+            overlap++;
+            dest[ind_dest++] = a[ind_a];
+            ind_a++;
+            ind_b++;
+        }
+    }
+    while (b[ind_b].sp && ind_dest < dest_count && ind_b < b_count) {
+        dest[ind_dest++] = b[ind_b++];
+    }
+    while (a[ind_a].sp && ind_dest < dest_count && ind_a < a_count) {
+        dest[ind_dest++] = a[ind_a++];
+    }
+
+    int lastX = -1;
+    int lastY = -1;
+
+    int i;
+    for (i = 0; i < ind_dest; ++i) {
+        dest[i].space = 0;
+        if (lastY == dest[i].y && lastX != -1 && dest[i].x > lastX + 3) {
+            dest[i].space = 1;
+        }
+        lastY = dest[i].y;
+        lastX = dest[i].x + dest[i].sp->width - 1;
+    }
+
+    *overlap_out = overlap;
+    return ind_dest;
 }

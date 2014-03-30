@@ -134,12 +134,17 @@ class SpriteIdentifier(object):
     def test_corpus(self, directory='corpus'):
         import os
         import time
+        images = []
         for fn in os.listdir(directory):
-            print '#' * 20 + ' ' + fn
-            im = cv2.cvtColor(cv2.imread(directory + '/' + fn), cv2.COLOR_BGR2GRAY)
-            start = time.time()
-            screen, text = self.stream_to_text(im)
-            print "%.1f"%((time.time()-start)*1000), text
+            images.append((fn, cv2.cvtColor(cv2.imread(directory + '/' + fn), cv2.COLOR_BGR2GRAY)))
+        sstart = time.time()
+        for _ in range(10):
+            for fn, im in images:
+                print '#' * 20 + ' ' + fn
+                start = time.time()
+                screen, text = self.stream_to_text(im)
+                print "%.1f"%((time.time()-start)*1000), text
+        print 'TOTAL:', time.time() - sstart
 
 
 class StreamProcessor(object):
@@ -211,7 +216,8 @@ class StreamProcessor(object):
                     tot_elapsed += elapsed
                     times.append((handler, elapsed))
             if tot_elapsed > 1/60.0:
-                print 'warning, slow frame', sorted(times, key=lambda x: x[1], reverse=True)
+                pass
+                #print 'warning, slow frame', sorted(times, key=lambda x: x[1], reverse=True)
                 #cv2.imwrite('slow_%s_%f.png' % (data['timestamp'], tot_elapsed), data['frame'])
 
 
@@ -254,7 +260,7 @@ class LogHandler(object):
             self.fd.write(self.rep(text) + data['timestamp'] + '\n')
 
 if __name__ == '__main__':
-    SpriteIdentifier().test_corpus('corpus_slow');q
+    #SpriteIdentifier().test_corpus();q
 
 
     def handler_stdout(data):
@@ -269,8 +275,6 @@ if __name__ == '__main__':
     r = redis.Redis()
 
     class DialogPusher(object):
-        def __init__(self):
-            self.tracker = dialog.BattleState('blah wants to fight', '')
         def handle(self, text, data):
             timestamp = data['timestamp']
             lines = ''

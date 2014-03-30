@@ -7,6 +7,7 @@ import cv2
 import numpy
 
 import ocr
+import struct
 
 from cffi import FFI
 
@@ -36,17 +37,33 @@ class ScreenExtractor(object):
 
 class OCREngine(object):
     def __init__(self, sprites, sprite_text):
+        def pack_image(buf):
+            out = []
+            for n in range(0, len(buf) / 14):
+                column = 0
+                for color in buf[n*14:n*14+14]:
+                    column = (column << 2) | color
+                out.append(column)
+            return out
+
+        def pack_to_struct(buf):
+            # for binary search to work properly, we need to have
+            # sprites arranged lexicographically by image bytes.
+            # this lets us sort them properly
+            buf = pack_image(buf)
+            return struct.pack('%dI' % len(buf), *buf)
+
         self.sprite_text = ''
         self.sprites = ffi.new('struct sprite[]', len(sprites) + 1)
         self.n_sprites = len(sprites)
-        sprites.sort(key=lambda (id, buf): buf)
+        sprites.sort(key=lambda (id, buf): pack_to_struct(buf))
         for sprite_n, (sprite_id, sprite_buf) in enumerate(sprites):
             sprite = self.sprites[sprite_n]
             sprite.id = sprite_id
             text = sprite_text.get(sprite_id, '#')
             sprite.text = text
+            sprite.image = pack_image(sprite_buf)
             sprite.width = max(3, len(sprite_buf) / 14)
-            sprite.image = sprite_buf
         self.sprites[len(sprites)].id = -1
         #print repr(list(self.sprites[0].image[0:128]))
 
@@ -58,9 +75,12 @@ class OCREngine(object):
                 self.map[color + off] = n
 
         self.last_image = None
+        self.last_matched = None
 
     def identify(self, screen):
-        #return []
+        ''' recognize text on screen, return list of lists of
+        [ypos, xbegin, xend, text]
+        '''
         max_matches = 128
         image = screen.flatten(order='F')
         pimage = ffi.cast('uint8_t *', image.ctypes.data)
@@ -70,14 +90,26 @@ class OCREngine(object):
         self.last_image = image
         results = ffi.new('struct sprite_match[]', max_matches)
         matched = C.identify_sprites(pimage, self.sprites, self.n_sprites, results, max_matches)
+        if self.last_matched is not None:
+            overlap = ffi.new('int *')
+            merged = ffi.new('struct sprite_match[]', max_matches)
+            merge_match = C.merge_sprites(self.last_matched, max_matches, results, max_matches, merged, max_matches, overlap)
+            #for n in xrange(overlap):
+            #s    print (merged[n].text and ffi.string(merged[n].text)),
+            #print 'matched', overlap
+            if overlap[0] > 3:
+                results = merged
+                matched = merge_match
+        self.last_matched = results
         out = []
         lastY = None
         for n in xrange(matched):
             match = results[n]
             if match.y != lastY:
-                out += [[match.y, '']]
+                out += [[match.y, match.x, match.x, '']]
                 lastY = match.y
-            out[-1][1] += ' ' * match.space + ffi.string(match.text)
+            out[-1][-1] += ' ' * match.space + ffi.string(match.sp.text)
+            out[-1][2] = match.x
         self.last_out = out
         return out
 
