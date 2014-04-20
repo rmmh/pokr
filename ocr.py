@@ -34,8 +34,8 @@ class SpriteIdentifier(object):
         if self.debug:
             cv2.namedWindow("Stream", cv2.WINDOW_AUTOSIZE)
             cv2.namedWindow("Game", cv2.WINDOW_AUTOSIZE)
-        self.tile_map = self.make_tilemap('emerald_tiles.png')
-        self.tile_text = self.make_tile_text('emerald_tiles.txt')
+        self.tile_map = self.make_tilemap('firered_tiles.png')
+        self.tile_text = self.make_tile_text('firered_tiles.txt')
         self.ocr_engine = video.OCREngine(self.tile_map, self.tile_text)
 
 
