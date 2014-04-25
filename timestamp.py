@@ -36,7 +36,7 @@ class TimestampRecognizer(object):
         col_sum = (timestamp > 150).sum(axis=0)  # Sum bright pixels in each column
         col_str = (col_sum *.5 + ord('A')).astype(numpy.int8).tostring()  #
         strings = re.split(r'A*', col_str)  # Segment by black columns
-        if self.debug == True:
+        if self.debug:
             print(strings)
             import cv2
             cv2.imshow('timestamp', timestamp)
