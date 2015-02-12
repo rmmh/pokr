@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
+import argparse
 import collections
 import os
 import re
-import sys
 import time
 import thread
 import traceback
@@ -13,6 +13,7 @@ import livestreamer
 import cv2
 
 import delta
+import dialog
 import timestamp
 import video
 
@@ -33,11 +34,9 @@ class SpriteIdentifier(object):
         self.debug = debug
         if self.debug:
             cv2.namedWindow("Stream", cv2.WINDOW_AUTOSIZE)
-            cv2.namedWindow("Game", cv2.WINDOW_AUTOSIZE)
         self.tile_map = self.make_tilemap('firered_tiles.png')
         self.tile_text = self.make_tile_text('firered_tiles.txt')
         self.ocr_engine = video.OCREngine(self.tile_map, self.tile_text)
-
 
     def make_tile_text(self, fname):
         def make_wide(x):
@@ -150,10 +149,10 @@ class SpriteIdentifier(object):
                 print "%.1f"%((time.time()-start)*1000), text
         print 'TOTAL:', time.time() - sstart
 
-
 class StreamProcessor(object):
     '''Grab frames from input and process with handlers'''
-    def __init__(self, bufsize=120, ratelimit=True, frame_skip=0, default_handlers=True, debug=False, video_loc=None):
+    def __init__(self, bufsize=120, ratelimit=True, frame_skip=0,
+                 default_handlers=True, debug=False, video_loc=None):
         self.frame_queue = Queue.Queue(bufsize)
         if ratelimit is None:
             # Automatically disable ratelimit if not using the default stream
@@ -238,7 +237,7 @@ class StreamProcessor(object):
         while True:
             try:
                 streamer = livestreamer.Livestreamer()
-                plugin = streamer.resolve_url('http://twitch.tv/twitchplayspokemon')
+                plugin = streamer.resolve_url('twitch.tv/twitchplayspokemon')
                 streams = plugin.get_streams()
                 return streams['source'].url
             except KeyError:
@@ -255,7 +254,7 @@ class LogHandler(object):
         self.key = key
         self.fd = open(fname, 'a')
         self.last = ''
-        self.rep = rep or (lambda s: s.replace('\n', '`'))
+        self.rep = rep or (lambda s: ''.join(s).replace('\n', '`'))
 
     def handle(self, data):
         text = data[self.key]
@@ -263,40 +262,33 @@ class LogHandler(object):
             self.last = text
             self.fd.write(self.rep(text) + data['timestamp'] + '\n')
 
+
+class DialogPusher(object):
+    def handle(self, text, data):
+        print data['timestamp'], text
+        # repr(self.tracker.annotate(text, data))
+
+
+def test_corpus():
+    SpriteIdentifier().test_corpus()
+
+
 if __name__ == '__main__':
-    #SpriteIdentifier().test_corpus();q
-
-
     def handler_stdout(data):
         print '\x1B[H' + data['timestamp'] + ' '*10
         print data['dithered']
 
-    import delta
-    import dialog
-    import redis
-    import json
-
-    r = redis.Redis()
-
-    class DialogPusher(object):
-        def handle(self, text, data):
-            timestamp = data['timestamp']
-            lines = ''
-            print data['timestamp'], text#repr(self.tracker.annotate(text, data))
-            r.publish('pokemon.streams.dialog', json.dumps({'time': timestamp, 'text': text, 'lines': lines}))
-
-
     box_reader = dialog.BoxReader()
     box_reader.add_dialog_handler(DialogPusher().handle)
 
-    debug = '--show' in sys.argv
-    try:
-        video_loc = sys.argv[sys.argv.index('-f') + 1]
-    except (ValueError, IndexError):
-        video_loc = None
-    proc = StreamProcessor(debug=debug, video_loc=video_loc)
-    #proc.add_handler(handler_stdout)
-    #proc.add_handler(LogHandler('text', 'frames.log').handle)
-    #proc.add_handler(delta.StringDeltaCompressor('dithered', verify=True).handle)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--debug', '-d', action='store_true',
+                        help='Show debug output')
+    parser.add_argument('video', nargs='?',
+                        help='File to read from (default: live stream)')
+    options = parser.parse_args()
+
+    proc = StreamProcessor(debug=options.debug, video_loc=options.video)
+    proc.add_handler(LogHandler('text', 'frames.log').handle)
     proc.add_handler(box_reader.handle)
     proc.run()
